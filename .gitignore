@@ -68,3 +68,12 @@ backend/dist/
 frontend/dist/
 volumes/
 sample.pdf
+
+# AI Agents / Assistants
+.agents/
+.agent/
+.claude/
+.codex/
+.cursor/
+.cursorrules
+.gemini/
