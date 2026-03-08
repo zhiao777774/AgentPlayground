@@ -119,4 +119,4 @@ Edit the Environment variables in `docker-compose.yaml` under `python-rag` servi
 
 ## License
 
-ISC
+[MIT](LICENSE)
