@@ -110,6 +110,10 @@ Edit the Environment variables in `docker-compose.yaml` under `python-rag` servi
 - `CHUNK_SIZE`: Default `800`.
 - `CHUNK_OVERLAP`: Default `150`.
 - `EMBEDDING_API_URL`: Support both OpenAI compat (`/v1/`) and Native Ollama (`/api/`) endpoints dynamically.
+- `SUMMARY_LLM_MODEL`: The LLM used to generate context.
+- `SUMMARY_LLM_API_BASE`: API base URL for the summary LLM.
+- `SUMMARY_LLM_API_KEY`: API key for the summary LLM.
+> Note: The `SUMMARY_LLM_*` variables are only utilized when `CHUNK_METHOD` is set to `anthropic` or `contextual`.
 
 ---
 
