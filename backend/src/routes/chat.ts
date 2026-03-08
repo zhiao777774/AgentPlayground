@@ -1,0 +1,447 @@
+import { Router } from 'express';
+import {
+    createAgentSession,
+    SessionManager,
+    DefaultResourceLoader,
+} from '@mariozechner/pi-coding-agent';
+import { modelRegistry, authStorage } from '../server.js';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { memory_get } from '../tools/memory_get.js';
+import { agent_list } from '../tools/agent_list.js';
+import { list_knowledge_base_documents } from '../tools/list_knowledge_base_documents.js';
+import { search_knowledge_base } from '../tools/search_knowledge_base.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const router = Router();
+const sessionsDir = path.resolve(__dirname, '../../memory/sessions');
+
+// Active session store: maps sessionId → AgentSession for mid-generation steering
+const activeSessions = new Map<string, any>();
+
+// ─── Main Chat Endpoint ─────────────────────────────────────────────────────
+router.post('/', async (req, res) => {
+    const { sessionId, modelId, message, branchFromId } = req.body;
+
+    if (!message) {
+        return res.status(400).json({ error: 'Message is required' });
+    }
+
+    // Set up Server-Sent Events headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    try {
+        // 1. Resolve Session
+        let sessionRecord;
+        const allSessions = await SessionManager.list(
+            process.cwd(),
+            sessionsDir,
+        );
+
+        if (sessionId) {
+            sessionRecord = allSessions.find(
+                (s) => s.id === sessionId || s.id.endsWith(`_${sessionId}`),
+            );
+        }
+
+        // Create new session if not found or no ID provided
+        let sessionManager: any;
+        let isNewSession = false;
+
+        if (sessionRecord) {
+            sessionManager = SessionManager.open(
+                sessionRecord.path,
+                sessionsDir,
+            );
+        } else {
+            sessionManager = SessionManager.create(process.cwd(), sessionsDir);
+            sessionManager.newSession();
+            // Force file creation immediately by appending an initialization marker
+            sessionManager.appendCustomEntry('session_init', {
+                timestamp: Date.now(),
+            });
+            isNewSession = true;
+            console.log(
+                `[DEBUG chat.ts] Created NEW session. getSessionId() = ${sessionManager.getSessionId()}`,
+            );
+        }
+
+        if (branchFromId !== undefined && sessionRecord) {
+            if (branchFromId === null) {
+                sessionManager.resetLeaf();
+            } else {
+                sessionManager.branch(branchFromId);
+            }
+        }
+
+        // 2. Resolve Model
+        // Since we explicitly allow overriding built-in models with custom ones,
+        // we should get the available models (which resolves to the registered ones).
+        const allModels = modelRegistry.getAvailable();
+        let model = allModels.find((m: any) => m.id === modelId);
+        console.log(`[DEBUG chat.ts] Requested modelId: ${modelId}`);
+        console.log(`[DEBUG chat.ts] Found model? ${!!model}`);
+        if (!model && allModels.length > 0) {
+            console.log(
+                `[DEBUG chat.ts] Available models: ${allModels.map((m: any) => m.id).join(', ')}`,
+            );
+            model = allModels[0]; // fallback
+        } else if (!model) {
+            throw new Error('No models available');
+        }
+
+        // 3. Extract persistent agent routing from history
+        let targetAgentId = null;
+        let isOneOff = false;
+        if (sessionRecord) {
+            const entries = sessionManager.getEntries();
+            // Find the most recent agent_routing entry
+            for (let i = entries.length - 1; i >= 0; i--) {
+                const entry = entries[i] as any;
+                if (
+                    entry.type === 'custom' &&
+                    entry.customType === 'agent_routing'
+                ) {
+                    targetAgentId = entry.data?.agentId || null;
+                    break;
+                }
+            }
+        }
+
+        // 4. Handle Slash Commands for routing
+        let actualMessage = message.trim();
+        let handleAsStaticSystemResponse: string | null = null;
+
+        // Match `/agent list` or `/agents` first, so `list` is not treated as an ID
+        if (
+            actualMessage.trim() === '/agent list' ||
+            actualMessage.trim() === '/agents'
+        ) {
+            const agentsDir = path.resolve(__dirname, '../../agents');
+            try {
+                if (!fs.existsSync(agentsDir)) {
+                    handleAsStaticSystemResponse = 'No agents directory found.';
+                } else {
+                    const entries = await fs.promises.readdir(agentsDir, {
+                        withFileTypes: true,
+                    });
+                    const agents = [];
+                    for (const entry of entries) {
+                        if (
+                            entry.isDirectory() &&
+                            !entry.name.startsWith('.')
+                        ) {
+                            const stat = await fs.promises.stat(
+                                path.join(agentsDir, entry.name),
+                            );
+                            agents.push(
+                                `- **${entry.name}** (Created: ${stat.birthtime.toISOString().split('T')[0]})`,
+                            );
+                        }
+                    }
+                    if (agents.length === 0) {
+                        handleAsStaticSystemResponse =
+                            'No custom agents found.';
+                    } else {
+                        handleAsStaticSystemResponse = `Found ${agents.length} agent(s):\n${agents.join('\n')}`;
+                    }
+                }
+            } catch (error: any) {
+                handleAsStaticSystemResponse = `Failed to read agents directory: ${error.message}`;
+            }
+        }
+
+        // Match `/agent <id>` or `/agent <id> <optional message>`
+        const agentMatch = actualMessage.match(
+            /^\/agent\s+([a-zA-Z0-9_-]+)(?:\s+(.*))?$/i,
+        );
+        if (agentMatch && !handleAsStaticSystemResponse) {
+            const requestedAgentId = agentMatch[1];
+            targetAgentId =
+                requestedAgentId === 'default' ? null : requestedAgentId;
+
+            // Validate the agent exists (skip for 'default')
+            if (targetAgentId) {
+                const agentsDir = path.resolve(__dirname, '../../agents');
+                const agentPath = path.join(agentsDir, targetAgentId);
+                if (
+                    !fs.existsSync(agentPath) ||
+                    !fs.statSync(agentPath).isDirectory()
+                ) {
+                    handleAsStaticSystemResponse = `Agent \"${targetAgentId}\" not found. Use \`/agents\` or \`/agent list\` to see available agents.`;
+                    // Don't proceed with routing — just show the error
+                    targetAgentId = undefined as any;
+                }
+            }
+
+            if (handleAsStaticSystemResponse === null) {
+                if (agentMatch[2] && agentMatch[2].trim().length > 0) {
+                    // If there is a message after the id, it's a one-off override
+                    actualMessage = agentMatch[2].trim();
+                    isOneOff = true;
+                } else {
+                    sessionManager.appendCustomEntry('agent_routing', {
+                        agentId: targetAgentId,
+                    });
+                    handleAsStaticSystemResponse = `Successfully switched agent mode to: ${targetAgentId || 'default'}. Future messages in this session will be routed to this agent.`;
+                    res.write(
+                        `data: ${JSON.stringify({ type: 'active_agent', id: targetAgentId || null })}\n\n`,
+                    );
+                }
+            }
+        }
+
+        if (handleAsStaticSystemResponse) {
+            // For new sessions, we must manually flush to disk because SessionManager
+            // defers file creation until an assistant message is present.
+            // Static slash commands never produce an assistant message, so we force it.
+            const sessionFile = sessionManager.getSessionFile();
+            if (sessionFile && !fs.existsSync(sessionFile)) {
+                const allEntries = [
+                    sessionManager.getHeader(),
+                    ...sessionManager.getEntries(),
+                ];
+                const content =
+                    allEntries.map((e: any) => JSON.stringify(e)).join('\n') +
+                    '\n';
+                fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+                fs.writeFileSync(sessionFile, content);
+            }
+
+            const activeId =
+                sessionManager.getSessionId() ??
+                sessionId ??
+                Date.now().toString();
+            console.log(
+                `[DEBUG chat.ts static] activeId = ${activeId}, sessionFile = ${sessionFile}`,
+            );
+
+            // Add user command as a custom message visible in UI
+            sessionManager.appendCustomMessageEntry(
+                'static_cmd_user',
+                [{ type: 'text', text: message.trim() }],
+                true,
+            );
+
+            // Add system response as a custom message visible in UI
+            sessionManager.appendCustomMessageEntry(
+                'static_cmd_assistant',
+                [{ type: 'text', text: handleAsStaticSystemResponse }],
+                true,
+            );
+
+            // Manually persist the new entries since SessionManager won't flush them
+            if (sessionFile) {
+                const entries = sessionManager.getEntries();
+                // Write only the entries that aren't already in the file
+                const content =
+                    [sessionManager.getHeader(), ...entries]
+                        .map((e: any) => JSON.stringify(e))
+                        .join('\n') + '\n';
+                fs.writeFileSync(sessionFile, content);
+            }
+
+            res.write(
+                `data: ${JSON.stringify({ type: 'session_id', id: activeId })}\n\n`,
+            );
+            res.write(
+                `data: ${JSON.stringify({ type: 'message', text: handleAsStaticSystemResponse })}\n\n`,
+            );
+            res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+            res.end();
+            return;
+        }
+
+        // 5. Configure Resource Loader to support global skills while switching Agent Directory
+        const baseAgentDir = path.resolve(__dirname, '../../');
+        const activeAgentDir = targetAgentId
+            ? path.resolve(baseAgentDir, 'agents', targetAgentId)
+            : baseAgentDir;
+
+        const resourceLoader = new DefaultResourceLoader({
+            cwd: process.cwd(),
+            agentDir: activeAgentDir,
+            additionalSkillPaths: [
+                path.join(baseAgentDir, 'skills'),
+                // Force load local skills for the active agent since there's no .pi config doing it automatically
+                ...(targetAgentId ? [path.join(activeAgentDir, 'skills')] : []),
+            ],
+        });
+        await resourceLoader.reload();
+
+        // Dynamically create the context-switching tool to capture sessionManager via closure
+        const switch_agent_routing = {
+            name: 'switch_agent_routing',
+            label: 'Switch Agent Context',
+            description:
+                'Switches the active default agent routing context for this chat session to a newly created agent. Call this ONLY after successfully creating a new agent in agents/.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    agentId: {
+                        type: 'string',
+                        description:
+                            'The unique directory name of the new agent.',
+                    },
+                },
+                required: ['agentId'],
+            },
+            execute: async (_toolCallId: any, params: any) => {
+                sessionManager.appendCustomEntry('agent_routing', {
+                    agentId: params.agentId,
+                });
+                res.write(
+                    `data: ${JSON.stringify({
+                        type: 'active_agent',
+                        id: params.agentId,
+                    })}\n\n`,
+                );
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `[SYSTEM] Successfully switched persistent routing context to agent: ${params.agentId}.`,
+                        },
+                    ],
+                    details: {},
+                };
+            },
+        };
+
+        // 6. Create Agent Session with SSE Progressive Disclosure
+        const { session } = await createAgentSession({
+            cwd: process.cwd(),
+            agentDir: activeAgentDir,
+            authStorage,
+            modelRegistry,
+            sessionManager,
+            resourceLoader,
+            model,
+            customTools: [
+                memory_get,
+                agent_list,
+                list_knowledge_base_documents,
+                search_knowledge_base,
+                switch_agent_routing as any,
+            ],
+        });
+
+        // Register this session so steer endpoint can reach it
+        const activeId =
+            sessionManager.getSessionId() ?? sessionId ?? Date.now().toString();
+        activeSessions.set(activeId, session);
+        // Let the client know the resolved session ID for steer calls
+        res.write(
+            `data: ${JSON.stringify({ type: 'session_id', id: activeId })}\n\n`,
+        );
+
+        // Listen to agent events to stream via SSE
+        session.subscribe((event: any) => {
+            if (event.type === 'tool_execution_start') {
+                res.write(
+                    `data: ${JSON.stringify({ type: 'tool_call', tool: event.toolName, input: event.args })}\n\n`,
+                );
+            } else if (event.type === 'tool_execution_end') {
+                // Extract text output from tool result content
+                let toolOutput = '';
+                if (Array.isArray(event.result?.content)) {
+                    toolOutput = event.result.content
+                        .filter((c: any) => c.type === 'text')
+                        .map((c: any) => c.text || '')
+                        .join('');
+                }
+                const citations = event.result?.details?.citations;
+                res.write(
+                    `data: ${JSON.stringify({
+                        type: 'tool_result',
+                        tool: event.toolName,
+                        status: event.isError ? 'error' : 'success',
+                        output: toolOutput,
+                        citations: citations,
+                    })}\n\n`,
+                );
+            } else if (event.type === 'message_update') {
+                const amEvent = event.assistantMessageEvent;
+                if (amEvent.type === 'text_delta' && amEvent.delta) {
+                    res.write(
+                        `data: ${JSON.stringify({ type: 'message', text: amEvent.delta })}\n\n`,
+                    );
+                } else if (amEvent.type === 'thinking_delta' && amEvent.delta) {
+                    res.write(
+                        `data: ${JSON.stringify({ type: 'thinking', text: amEvent.delta })}\n\n`,
+                    );
+                }
+            }
+        });
+
+        // Abort agent if client disconnects early
+        req.on('close', () => {
+            activeSessions.delete(activeId);
+            if (session.isStreaming) {
+                console.log('Client disconnected, aborting agent session...');
+                session.abort().catch(console.error);
+            }
+        });
+
+        // 7. Send the user message to the agent
+        await session.sendUserMessage(actualMessage);
+
+        // Clean up active session
+        activeSessions.delete(activeId);
+
+        // Append context usage telemetry
+        const contextUsage = session.getContextUsage();
+        if (contextUsage) {
+            res.write(
+                `data: ${JSON.stringify({ type: 'context_usage', usage: contextUsage })}\n\n`,
+            );
+        }
+
+        // End the SSE stream
+        res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        res.end();
+    } catch (error: any) {
+        console.error('Chat endpoint error:', error);
+        res.write(
+            `data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`,
+        );
+        res.end();
+    }
+});
+
+// ─── Steer Endpoint ─────────────────────────────────────────────────────────
+// Injects a steering message into an actively running agent session.
+// steer() interrupts after the current tool execution and redirects the agent.
+router.post('/steer', async (req, res) => {
+    const { sessionId, text, mode = 'steer' } = req.body;
+
+    if (!sessionId || !text) {
+        return res
+            .status(400)
+            .json({ error: 'sessionId and text are required' });
+    }
+
+    const session = activeSessions.get(sessionId);
+    if (!session) {
+        return res.status(404).json({
+            error: 'No active session found. Agent may have finished.',
+        });
+    }
+
+    try {
+        if (mode === 'followUp') {
+            await session.followUp(text);
+        } else {
+            await session.steer(text);
+        }
+        res.json({ ok: true });
+    } catch (error: any) {
+        console.error('Steer error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+export default router;

@@ -1,0 +1,27 @@
+{
+    "providers": {
+        "custom": {
+            "baseUrl": "http://localhost:11434/v1",
+            "api": "openai-completions",
+            "apiKey": "ollama",
+            "models": [
+                {
+                    "id": "qwen3:8b",
+                    "name": "Qwen3 8B (Ollama)",
+                    "contextWindow": 32768,
+                    "maxTokens": 4096,
+                    "cost": {
+                        "input": 0.0,
+                        "output": 0.0,
+                        "cacheRead": 0.0,
+                        "cacheWrite": 0.0
+                    },
+                    "reasoning": false,
+                    "input": [
+                        "text"
+                    ]
+                }
+            ]
+        }
+    }
+}

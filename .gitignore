@@ -1,0 +1,70 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+build/
+.npm
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE / Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Data / Memory / Local state
+backend/memory/
+!backend/memory/.gitkeep
+tmp/
+rag_uploads/
+.data/
+milvus-data/
+
+# Specific ignores based on project structure
+backend/dist/
+frontend/dist/
+volumes/
+sample.pdf

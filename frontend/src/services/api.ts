@@ -1,0 +1,120 @@
+import type {
+    Model,
+    Session,
+    Agent,
+    AgentDetail,
+    DocumentMeta,
+    DocumentChunksResponse,
+} from '../types/index';
+
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001/api';
+
+export const api = {
+    models: {
+        list: async (): Promise<Model[]> => {
+            const res = await fetch(`${API_BASE}/models`);
+            if (!res.ok) throw new Error('Failed to fetch models');
+            return res.json();
+        },
+    },
+    sessions: {
+        list: async (): Promise<Session[]> => {
+            const res = await fetch(`${API_BASE}/sessions`);
+            if (!res.ok) throw new Error('Failed to fetch sessions');
+            return res.json();
+        },
+        create: async (): Promise<{ sessionId: string }> => {
+            const res = await fetch(`${API_BASE}/sessions`, { method: 'POST' });
+            if (!res.ok) throw new Error('Failed to create session');
+            return res.json();
+        },
+        get: async (id: string): Promise<Session> => {
+            const res = await fetch(`${API_BASE}/sessions/${id}`);
+            if (!res.ok) throw new Error('Failed to fetch session');
+            return res.json();
+        },
+        update: async (id: string, data: { name: string }): Promise<void> => {
+            const res = await fetch(`${API_BASE}/sessions/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) throw new Error('Failed to update session');
+        },
+        delete: async (id: string): Promise<void> => {
+            const res = await fetch(`${API_BASE}/sessions/${id}`, {
+                method: 'DELETE',
+            });
+            if (!res.ok) throw new Error('Failed to delete session');
+        },
+    },
+    agents: {
+        list: async (): Promise<Agent[]> => {
+            const res = await fetch(`${API_BASE}/agents`);
+            if (!res.ok) throw new Error('Failed to fetch agents');
+            return res.json();
+        },
+        get: async (id: string): Promise<AgentDetail> => {
+            const res = await fetch(`${API_BASE}/agents/${id}`);
+            if (!res.ok) throw new Error('Failed to fetch agent details');
+            return res.json();
+        },
+        updateFile: async (
+            id: string,
+            filePath: string,
+            content: string,
+        ): Promise<void> => {
+            const res = await fetch(`${API_BASE}/agents/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filePath, content }),
+            });
+            if (!res.ok) throw new Error('Failed to update agent file');
+        },
+        delete: async (id: string): Promise<void> => {
+            const res = await fetch(`${API_BASE}/agents/${id}`, {
+                method: 'DELETE',
+            });
+            if (!res.ok) throw new Error('Failed to delete agent');
+        },
+    },
+    documents: {
+        list: async (): Promise<DocumentMeta[]> => {
+            const res = await fetch(`${API_BASE}/documents`);
+            if (!res.ok) throw new Error('Failed to fetch documents');
+            return res.json();
+        },
+        get: async (id: string): Promise<DocumentMeta> => {
+            const res = await fetch(`${API_BASE}/documents/${id}`);
+            if (!res.ok) throw new Error('Failed to fetch document details');
+            return res.json();
+        },
+        getChunks: async (
+            id: string,
+            limit = 50,
+            offset = 0,
+        ): Promise<DocumentChunksResponse> => {
+            const res = await fetch(
+                `${API_BASE}/documents/${id}/chunks?limit=${limit}&offset=${offset}`,
+            );
+            if (!res.ok) throw new Error('Failed to fetch document chunks');
+            return res.json();
+        },
+        upload: async (file: File): Promise<DocumentMeta> => {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await fetch(`${API_BASE}/documents/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+            if (!res.ok) throw new Error('Failed to upload document');
+            return res.json();
+        },
+        delete: async (id: string): Promise<void> => {
+            const res = await fetch(`${API_BASE}/documents/${id}`, {
+                method: 'DELETE',
+            });
+            if (!res.ok) throw new Error('Failed to delete document');
+        },
+    },
+};
