@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import unzipper from 'unzipper';
+import archiver from 'archiver';
 import { Readable } from 'stream';
 
 // Configuration constants for file traversing
@@ -116,11 +117,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         }
 
         if (rootEntries.size !== 1) {
-            return res
-                .status(400)
-                .json({
-                    error: 'Zip file must contain exactly one top-level folder representing the agent',
-                });
+            return res.status(400).json({
+                error: 'Zip file must contain exactly one top-level folder representing the agent',
+            });
         }
 
         const agentName = Array.from(rootEntries)[0];
@@ -128,11 +127,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
         // Step 2: Check for conflict
         if (existsSync(agentPath)) {
-            return res
-                .status(409)
-                .json({
-                    error: `An agent named "${agentName}" already exists.`,
-                });
+            return res.status(409).json({
+                error: `An agent named "${agentName}" already exists.`,
+            });
         }
 
         // Step 3: Extract zip
@@ -314,6 +311,54 @@ router.put('/:id', async (req, res) => {
             error,
         );
         res.status(500).json({ error: 'Failed to update agent file' });
+    }
+});
+
+// GET /api/agents/:id/export - Export an agent as a zip file
+router.get('/:id/export', async (req, res) => {
+    const agentId = req.params.id;
+    const agentPath = path.join(agentsDir, agentId);
+
+    if (!existsSync(agentPath)) {
+        return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    try {
+        // Set headers to trigger a file download in the browser
+        res.attachment(`${agentId}.zip`);
+
+        const archive = archiver('zip', {
+            zlib: { level: 9 }, // Sets the compression level.
+        });
+
+        // Listen for all archive's data and pipe it to the response object
+        archive.pipe(res);
+
+        // Good practice to catch warnings (ie stat failures and other non-blocking errors)
+        archive.on('warning', function (err) {
+            if (err.code === 'ENOENT') {
+                console.warn(err);
+            } else {
+                throw err;
+            }
+        });
+
+        // Good practice to catch these errors explicitly
+        archive.on('error', function (err) {
+            throw err;
+        });
+
+        // Append files from a sub-directory, putting its contents at the root of archive
+        // We put them inside a folder named after the agent, so when unzipped, it creates that folder.
+        archive.directory(agentPath, agentId);
+
+        // Finalize the archive (i.e. we are done appending files)
+        archive.finalize();
+    } catch (error: any) {
+        console.error(`Failed to export agent ${agentId}:`, error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to export agent' });
+        }
     }
 });
 

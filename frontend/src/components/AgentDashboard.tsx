@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import type { Agent } from '../types';
-import { Bot, Plus, Trash2, Calendar, FileText, UploadCloud, Loader2 } from 'lucide-react';
+import { Bot, Plus, Trash2, Calendar, FileText, UploadCloud, Loader2, Download } from 'lucide-react';
 import { api } from '../services/api';
 
 interface Props {
@@ -116,15 +116,32 @@ export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgen
                                     <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                                         <Bot className="w-5 h-5" />
                                     </div>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setDeleteConfirmId(agent.id);
-                                        }}
-                                        className="p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-100 hover:text-red-500 dark:hover:bg-gray-700 dark:hover:text-red-400 opacity-0 group-hover:opacity-100"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                try {
+                                                    await api.agents.export(agent.id);
+                                                } catch {
+                                                    alert('Failed to export agent');
+                                                }
+                                            }}
+                                            className="p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-100 hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-blue-400"
+                                            title="Export Agent"
+                                        >
+                                            <Download className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setDeleteConfirmId(agent.id);
+                                            }}
+                                            className="p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-100 hover:text-red-500 dark:hover:bg-gray-700 dark:hover:text-red-400"
+                                            title="Delete Agent"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 truncate" title={agent.name}>

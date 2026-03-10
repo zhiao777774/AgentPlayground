@@ -101,6 +101,24 @@ export const api = {
             const data = await res.json();
             return data.agent;
         },
+        export: async (id: string): Promise<void> => {
+            const res = await fetch(`${API_BASE}/agents/${id}/export`, {
+                method: 'GET',
+            });
+            if (!res.ok) throw new Error('Failed to export agent');
+
+            // Handle file download
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `${id}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        },
     },
     documents: {
         list: async (): Promise<DocumentMeta[]> => {
