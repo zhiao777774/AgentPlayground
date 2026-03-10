@@ -15,6 +15,7 @@ services:
         environment:
             - PORT=3001
             - NODE_ENV=production
+            - PYTHON_SERVICE_URL=http://python-rag:8000
         # Allow the container to reach host services (e.g. Ollama on localhost:11434)
         extra_hosts:
             - 'host.docker.internal:host-gateway'
