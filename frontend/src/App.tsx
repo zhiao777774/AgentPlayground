@@ -6,7 +6,7 @@ import { ModelSelector } from './components/ModelSelector';
 import { AgentDashboard } from './components/AgentDashboard';
 import { AgentDetail } from './components/AgentDetail';
 import { KnowledgeBase } from './components/KnowledgeBase';
-import { api } from './services/api';
+import { api, API_BASE } from './services/api';
 import type { Model, Session, Message, Agent, AgentDetail as AgentDetailType, DocumentMeta } from './types/index';
 import { Bot, AlertCircle } from 'lucide-react';
 
@@ -313,7 +313,7 @@ function App() {
 
     try {
       // Connect specifically via fetch then read stream directly
-      const response = await fetch('http://localhost:3001/api/chat', {
+      const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: abortController.signal,
@@ -492,7 +492,7 @@ function App() {
     setPendingActions(prev => [...prev, { id: Date.now().toString(), type: mode, text }]);
 
     try {
-      const res = await fetch('http://localhost:3001/api/chat/steer', {
+      const res = await fetch(`${API_BASE}/chat/steer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: sid, text, mode }),
