@@ -123,7 +123,7 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
             onRefresh();
         } catch (error) {
             console.error('Upload failed:', error);
-            alert('Failed to upload document.');
+            alert(error instanceof Error ? error.message : 'Failed to upload document.');
         } finally {
             setIsUploading(false);
             if (fileInputRef.current) {

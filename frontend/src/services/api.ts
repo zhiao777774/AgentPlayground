@@ -108,7 +108,20 @@ export const api = {
                 method: 'POST',
                 body: formData,
             });
-            if (!res.ok) throw new Error('Failed to upload document');
+            if (!res.ok) {
+                let errorMsg = 'Failed to upload document';
+                try {
+                    const data = await res.json();
+                    if (data.error) errorMsg = data.error;
+                } catch {
+                    // Ignore parsing error if it's not JSON (like 413 from Nginx)
+                    if (res.status === 413) {
+                        errorMsg =
+                            'File is too large (exceeds maximum allowed size)';
+                    }
+                }
+                throw new Error(errorMsg);
+            }
             return res.json();
         },
         delete: async (id: string): Promise<void> => {
