@@ -24,8 +24,8 @@ services:
         build: ./frontend
         container_name: agent-playground-frontend
         ports:
-            # Change the left side to use a different host port, e.g. "9090:80"
-            - '9090:80'
+            # Change the left side to use a different host port, e.g. "8080:80"
+            - '8080:80'
         depends_on:
             - backend
         restart: unless-stopped
