@@ -332,6 +332,7 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
                                 <UploadCloud className="w-10 h-10 mb-2 text-gray-400 dark:text-gray-500" />
                                 <p className="font-medium text-gray-700 dark:text-gray-300">Click or drag a PDF file to upload</p>
                                 <p className="text-sm mt-1">Files will be parsed, chunked, and embedded for RAG</p>
+                                <p className="text-xs mt-1.5 font-medium text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800/50 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-700">Maximum size: 100MB</p>
                             </div>
                         )}
                     </div>
