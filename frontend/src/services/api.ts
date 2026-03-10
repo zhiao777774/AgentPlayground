@@ -78,6 +78,29 @@ export const api = {
             });
             if (!res.ok) throw new Error('Failed to delete agent');
         },
+        upload: async (file: File): Promise<Agent> => {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await fetch(`${API_BASE}/agents/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+            if (!res.ok) {
+                let errorMsg = 'Failed to upload agent';
+                try {
+                    const data = await res.json();
+                    if (data.error) errorMsg = data.error;
+                } catch {
+                    if (res.status === 413) {
+                        errorMsg =
+                            'File is too large (exceeds maximum allowed size)';
+                    }
+                }
+                throw new Error(errorMsg);
+            }
+            const data = await res.json();
+            return data.agent;
+        },
     },
     documents: {
         list: async (): Promise<DocumentMeta[]> => {

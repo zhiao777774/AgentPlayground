@@ -571,6 +571,7 @@ function App() {
             onSelectAgent={handleSelectAgent}
             onNewAgent={handleNewAgent}
             onDeleteAgent={handleDeleteAgent}
+            onRefreshAgents={fetchAgents}
             isLoading={isLoadingAgents}
           />
         )

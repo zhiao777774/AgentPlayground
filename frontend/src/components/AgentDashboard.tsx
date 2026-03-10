@@ -1,19 +1,47 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import type { Agent } from '../types';
-import { Bot, Plus, Trash2, Calendar, FileText } from 'lucide-react';
+import { Bot, Plus, Trash2, Calendar, FileText, UploadCloud, Loader2 } from 'lucide-react';
+import { api } from '../services/api';
 
 interface Props {
     agents: Agent[];
     onSelectAgent: (id: string) => void;
     onNewAgent: () => void;
     onDeleteAgent: (id: string) => void;
+    onRefreshAgents: () => void;
     isLoading?: boolean;
 }
 
-export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgent, isLoading }: Props) {
+export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgent, onRefreshAgents, isLoading }: Props) {
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    if (isLoading) {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (file.type !== 'application/zip' && file.type !== 'application/x-zip-compressed' && !file.name.endsWith('.zip')) {
+            alert('Only ZIP files are supported for agent upload.');
+            return;
+        }
+
+        setIsUploading(true);
+        try {
+            await api.agents.upload(file);
+            onRefreshAgents();
+        } catch (error) {
+            console.error('Upload failed:', error);
+            alert(error instanceof Error ? error.message : 'Failed to upload agent.');
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        }
+    };
+
+    if (isLoading && !isUploading) {
         return (
             <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -31,13 +59,30 @@ export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgen
                     <Bot className="w-5 h-5 text-blue-500" />
                     Agent Management
                 </h1>
-                <button
-                    onClick={onNewAgent}
-                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-                >
-                    <Plus className="w-4 h-4" />
-                    New Agent
-                </button>
+                <div className="flex items-center gap-3">
+                    <input
+                        type="file"
+                        accept=".zip"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        className="hidden"
+                    />
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="flex items-center gap-2 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 text-gray-700 dark:text-gray-300 font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                        {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                        {isUploading ? 'Uploading...' : 'Upload Agent'}
+                    </button>
+                    <button
+                        onClick={onNewAgent}
+                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                    >
+                        <Plus className="w-4 h-4" />
+                        New Agent
+                    </button>
+                </div>
             </header>
 
             {/* Content Area */}

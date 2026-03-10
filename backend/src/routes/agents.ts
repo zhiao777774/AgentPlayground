@@ -3,6 +3,9 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
+import unzipper from 'unzipper';
+import { Readable } from 'stream';
 
 // Configuration constants for file traversing
 const IGNORED_DIRS = new Set([
@@ -31,6 +34,23 @@ async function ensureAgentsDir() {
         await fs.mkdir(agentsDir, { recursive: true });
     }
 }
+
+// Multer setup for zip uploads (memory storage before extraction)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+    fileFilter: (req, file, cb) => {
+        if (
+            file.mimetype === 'application/zip' ||
+            file.mimetype === 'application/x-zip-compressed' ||
+            file.originalname.endsWith('.zip')
+        ) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only ZIP files are supported for agent upload.'));
+        }
+    },
+});
 
 // GET /api/agents - List all agents
 router.get('/', async (req, res) => {
@@ -65,6 +85,71 @@ router.get('/', async (req, res) => {
     } catch (error: any) {
         console.error('Failed to list agents:', error);
         res.status(500).json({ error: 'Failed to list agents' });
+    }
+});
+
+// POST /api/agents/upload - Upload a new agent via zip
+router.post('/upload', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const zipBuffer = req.file.buffer;
+
+        // Step 1: Analyze zip to find root folder name
+        const directory = await unzipper.Open.buffer(zipBuffer);
+        if (directory.files.length === 0) {
+            return res.status(400).json({ error: 'Zip file is empty' });
+        }
+
+        // Find the first top-level folder (or derive from files)
+        const rootEntries = new Set<string>();
+        for (const file of directory.files) {
+            const parts = file.path.split('/');
+            if (parts.length > 0 && parts[0]) {
+                // Ignore macOS invisible folders
+                if (parts[0] !== '__MACOSX') {
+                    rootEntries.add(parts[0]);
+                }
+            }
+        }
+
+        if (rootEntries.size !== 1) {
+            return res
+                .status(400)
+                .json({
+                    error: 'Zip file must contain exactly one top-level folder representing the agent',
+                });
+        }
+
+        const agentName = Array.from(rootEntries)[0];
+        const agentPath = path.join(agentsDir, agentName);
+
+        // Step 2: Check for conflict
+        if (existsSync(agentPath)) {
+            return res
+                .status(409)
+                .json({
+                    error: `An agent named "${agentName}" already exists.`,
+                });
+        }
+
+        // Step 3: Extract zip
+        await ensureAgentsDir();
+
+        const readStream = Readable.from(zipBuffer);
+        await readStream.pipe(unzipper.Extract({ path: agentsDir })).promise();
+
+        res.status(201).json({
+            message: 'Agent uploaded successfully',
+            agent: { id: agentName, name: agentName, type: 'Unknown' },
+        });
+    } catch (error: any) {
+        console.error('Failed to upload agent:', error);
+        res.status(500).json({
+            error: error.message || 'Failed to extract agent zip file',
+        });
     }
 });
 
