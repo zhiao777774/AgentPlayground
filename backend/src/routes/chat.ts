@@ -408,6 +408,7 @@ router.post('/', async (req, res) => {
         res.write(
             `data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`,
         );
+        res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
         res.end();
     }
 });

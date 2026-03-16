@@ -364,6 +364,17 @@ export function ChatWindow({
                                                             )}
                                                         </div>
 
+                                                        {/* Error State Banner */}
+                                                        {msg.stopReason === 'error' && msg.errorMessage && (
+                                                            <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex items-start gap-2 text-sm text-red-700 dark:text-red-400">
+                                                                <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                                                <div className="flex-1 whitespace-pre-wrap font-mono relative pr-12 text-xs leading-relaxed">
+                                                                    <div className="font-semibold mb-1 text-sm font-sans">Message generation failed</div>
+                                                                    {msg.errorMessage}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
                                                         {/* User: edit button (left side) */}
                                                         {msg.role === 'user' && (
                                                             <button

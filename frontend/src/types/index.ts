@@ -29,6 +29,8 @@ export interface Message {
     toolCalls?: ToolCall[];
     activeAgentId?: string | null;
     citations?: Record<string, any>;
+    errorMessage?: string;
+    stopReason?: string;
 }
 
 export interface ToolCall {

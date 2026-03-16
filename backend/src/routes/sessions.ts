@@ -258,6 +258,8 @@ router.get('/:id', async (req, res) => {
                         reasoning: reasoningContent,
                         activeAgentId: agentIdByEntry.get(entry.id) || null,
                         citations: msg.citations || undefined,
+                        errorMessage: msg.errorMessage || undefined,
+                        stopReason: msg.stopReason || undefined,
                     });
                 } else if (entry.type === 'custom_message') {
                     // Map custom_message as a standard visible message node in the frontend
@@ -338,12 +340,20 @@ router.get('/:id', async (req, res) => {
                     entry.message?.role === 'assistant'
                 ) {
                     const usage = (entry.message as any)?.usage;
+                    const stopReason = (entry.message as any)?.stopReason;
+                    
                     if (usage) {
                         const tokens =
                             (usage.input || 0) +
                             (usage.output || 0) +
                             (usage.cacheRead || 0) +
                             (usage.cacheWrite || 0);
+                        
+                        // If hitting an error or no tokens, continue searching backward to find the last valid measurement
+                        if (tokens === 0 || stopReason === 'error') {
+                            continue;
+                        }
+
                         contextUsage = {
                             tokens,
                             contextWindow,
