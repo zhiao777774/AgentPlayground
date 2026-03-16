@@ -374,6 +374,14 @@ router.post('/', async (req, res) => {
                         `data: ${JSON.stringify({ type: 'thinking', text: amEvent.delta })}\n\n`,
                     );
                 }
+            } else if (event.type === 'auto_compaction_start') {
+                res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: event.reason })}\n\n`);
+            } else if (event.type === 'auto_compaction_end') {
+                res.write(`data: ${JSON.stringify({ type: 'status', status: 'generative' })}\n\n`);
+            } else if (event.type === 'auto_retry_start') {
+                res.write(`data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: event.attempt, maxAttempts: event.maxAttempts })}\n\n`);
+            } else if (event.type === 'auto_retry_end') {
+                res.write(`data: ${JSON.stringify({ type: 'status', status: 'generative' })}\n\n`);
             }
         });
 

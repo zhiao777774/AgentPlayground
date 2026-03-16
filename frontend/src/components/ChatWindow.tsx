@@ -10,7 +10,7 @@ interface ChatWindowProps {
     onSelectLeaf: (id: string) => void;
     onResend: (content: string, parentId: string | null) => void;
     onQuote: (msg: Message) => void;
-    isLoading?: boolean;
+    isLoading?: 'generating' | 'compacting' | 'retrying' | false;
 }
 
 function EditMessageContent({
@@ -434,14 +434,31 @@ export function ChatWindow({
                                         })()}
 
                                         {/* Generating Indicator for Active Stream */}
-                                        {isLoading && index === messages.length - 1 && msg.role === 'assistant' && (
-                                            <div className="flex items-center gap-2 mt-2 text-xs font-medium text-gray-500 dark:text-gray-400 animate-pulse select-none">
-                                                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
-                                                <span>
-                                                    {(!msg.reasoning && (!msg.toolCalls || msg.toolCalls.length === 0) && !msg.content) ? 'Connecting to agent...' : 'Generating...'}
-                                                </span>
-                                            </div>
-                                        )}
+                                        {isLoading && index === messages.length - 1 && msg.role === 'assistant' && (() => {
+                                            let statusText: string;
+                                            let statusColor: string;
+                                            if (isLoading === 'compacting') {
+                                                statusText = '⚡ Context limit reached — compacting conversation...';
+                                                statusColor = 'text-amber-500';
+                                            } else if (isLoading === 'retrying') {
+                                                statusText = '🔄 Retrying request...';
+                                                statusColor = 'text-orange-500';
+                                            } else if (!msg.reasoning && (!msg.toolCalls || msg.toolCalls.length === 0) && !msg.content) {
+                                                statusText = 'Connecting to agent...';
+                                                statusColor = 'text-blue-500';
+                                            } else {
+                                                statusText = 'Generating...';
+                                                statusColor = 'text-blue-500';
+                                            }
+                                            return (
+                                                <div className={`flex items-center gap-2 mt-2 text-xs font-medium text-gray-500 dark:text-gray-400 ${isLoading === 'compacting' || isLoading === 'retrying' ? '' : 'animate-pulse'} select-none`}>
+                                                    <Loader2 className={`w-3.5 h-3.5 animate-spin ${statusColor}`} />
+                                                    <span className={isLoading === 'compacting' || isLoading === 'retrying' ? statusColor : ''}>
+                                                        {statusText}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             </div>

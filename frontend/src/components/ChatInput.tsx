@@ -7,13 +7,13 @@ interface Props {
     onStop?: () => void;
     onSteer?: (text: string, mode?: 'steer' | 'followUp') => void;
     disabled?: boolean;
-    isGenerating?: boolean;
+    isGenerating?: 'generating' | 'compacting' | 'retrying' | false;
     quotedMessage?: { id: string; content: string } | null;
     onClearQuote?: () => void;
     pendingActions?: { id: string, type: 'steer' | 'followUp', text: string }[];
 }
 
-export function ChatInput({ onSend, onStop, onSteer, disabled, isGenerating, quotedMessage, onClearQuote, pendingActions = [] }: Props) {
+export function ChatInput({ onSend, onStop, onSteer, disabled, isGenerating = false, quotedMessage, onClearQuote, pendingActions = [] }: Props) {
     const [content, setContent] = useState('');
     const [steerContent, setSteerContent] = useState('');
 
@@ -132,7 +132,7 @@ export function ChatInput({ onSend, onStop, onSteer, disabled, isGenerating, quo
                         onChange={(e) => setContent(e.target.value)}
                         onKeyDown={handleKeyDown}
                         disabled={disabled && !isGenerating}
-                        placeholder={isGenerating ? 'Agent is generating... (use Steer above to redirect)' : disabled ? 'Select a model first' : 'Type a message, or use /agent list to view agents... (Shift+Enter for new line)'}
+                        placeholder={isGenerating === 'compacting' ? 'Compacting context — please wait...' : isGenerating === 'retrying' ? 'Retrying — please wait...' : isGenerating ? 'Agent is generating... (use Steer above to redirect)' : disabled ? 'Select a model first' : 'Type a message, or use /agent list to view agents... (Shift+Enter for new line)'}
                         className="w-full resize-none overflow-y-auto rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 py-3 pr-12 pl-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors shadow-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 disabled:cursor-not-allowed min-h-12 max-h-50 chat-scrollbar"
                         rows={1}
                     />

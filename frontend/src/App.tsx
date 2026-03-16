@@ -22,7 +22,7 @@ function App() {
   const activeSessionIdRef = useRef<string | null>(null);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
-  const [isSending, setIsSending] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<'generating' | 'compacting' | 'retrying' | false>(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingActions, setPendingActions] = useState<{ id: string, type: 'steer' | 'followUp', text: string }[]>([]);
 
@@ -202,7 +202,7 @@ function App() {
     setQuotedMessage(null); // clear any pending quote when switching sessions
     setContextUsage(null);
     try {
-      setIsSending(true);
+      setGenerationStatus('generating');
       const session = await api.sessions.get(id);
       const msgs = session.messages || [];
       setSessionMessages(msgs);
@@ -220,7 +220,7 @@ function App() {
     } catch (err) {
       console.error('Failed to load session details', err);
     } finally {
-      setIsSending(false);
+      setGenerationStatus(false);
     }
   };
 
@@ -274,7 +274,7 @@ function App() {
     setSessionMessages((prev) => [...prev, newMessage]);
     setActiveLeafId(newUserId);
 
-    setIsSending(true);
+    setGenerationStatus('generating');
     setError(null);
 
     let currentSessionId = activeSessionId;
@@ -294,7 +294,7 @@ function App() {
       } catch (err) {
         console.error('Deferred session creation failed:', err);
         setError('Failed to create session');
-        setIsSending(false);
+        setGenerationStatus(false);
         return;
       }
     }
@@ -440,8 +440,18 @@ function App() {
                     }
                     break;
 
+                  case 'status':
+                    if (event.status === 'generative') {
+                      setGenerationStatus('generating');
+                    } else if (event.status === 'compacting') {
+                      setGenerationStatus('compacting');
+                    } else if (event.status === 'retrying') {
+                      setGenerationStatus('retrying');
+                    }
+                    break;
+
                   case 'done': {
-                    setIsSending(false);
+                    setGenerationStatus(false);
                     setPendingActions([]);
                     if (isFirstMessage) {
                       fetchSessions();
@@ -470,7 +480,7 @@ function App() {
         setError('Connection to chat server failed.');
       }
     } finally {
-      setIsSending(false);
+      setGenerationStatus(false);
       abortControllerRef.current = null;
     }
   };
@@ -633,7 +643,7 @@ function App() {
                     models={models}
                     selectedModelId={selectedModelId}
                     onSelect={setSelectedModelId}
-                    disabled={isSending}
+                    disabled={generationStatus !== false}
                     isLoading={isLoadingModels}
                   />
                 </div>
@@ -666,7 +676,7 @@ function App() {
               onSelectLeaf={setActiveLeafId}
               onResend={handleSendMessage}
               onQuote={(msg) => setQuotedMessage({ id: msg.id, content: msg.content })}
-              isLoading={isSending}
+              isLoading={generationStatus || undefined}
             />
           </div>
 
@@ -676,8 +686,8 @@ function App() {
               onSend={handleSendMessage}
               onStop={handleStopGeneration}
               onSteer={handleSteerMessage}
-              isGenerating={isSending}
-              disabled={isSending || !selectedModelId}
+              isGenerating={generationStatus}
+              disabled={generationStatus !== false || !selectedModelId}
               quotedMessage={quotedMessage}
               onClearQuote={() => setQuotedMessage(null)}
               pendingActions={pendingActions}
