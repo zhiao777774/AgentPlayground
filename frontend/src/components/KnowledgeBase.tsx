@@ -103,8 +103,9 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
     };
 
     const checkAndUpload = async (file: File) => {
-        if (file.type !== 'application/pdf') {
-            alert('Only PDF files are supported.');
+        const allowed = ['application/pdf', 'text/plain'];
+        if (!allowed.includes(file.type)) {
+            alert('Only PDF and TXT files are supported.');
             return;
         }
         const duplicate = documents.find(d => d.name === file.name);
@@ -319,7 +320,7 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
                             type="file"
                             ref={fileInputRef}
                             onChange={handleFileSelect}
-                            accept="application/pdf"
+                            accept="application/pdf,.txt,text/plain"
                             className="hidden"
                         />
                         {isUploading ? (
@@ -330,7 +331,7 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
                         ) : (
                             <div className="flex flex-col items-center text-gray-500 dark:text-gray-400">
                                 <UploadCloud className="w-10 h-10 mb-2 text-gray-400 dark:text-gray-500" />
-                                <p className="font-medium text-gray-700 dark:text-gray-300">Click or drag a PDF file to upload</p>
+                                <p className="font-medium text-gray-700 dark:text-gray-300">Click or drag a PDF or TXT file to upload</p>
                                 <p className="text-sm mt-1">Files will be parsed, chunked, and embedded for RAG</p>
                                 <p className="text-xs mt-1.5 font-medium text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800/50 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-700">Maximum size: 100MB</p>
                             </div>

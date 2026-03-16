@@ -36,10 +36,15 @@ const upload = multer({
     storage,
     limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
     fileFilter: (req, file, cb) => {
-        if (file.mimetype === 'application/pdf') {
+        const allowed = ['application/pdf', 'text/plain'];
+        if (allowed.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error('Only PDF files are currently supported for RAG.'));
+            cb(
+                new Error(
+                    'Only PDF and TXT files are currently supported for RAG.',
+                ),
+            );
         }
     },
 });
@@ -125,10 +130,13 @@ async function forwardToPythonService(
     originalName: string,
 ) {
     const form = new FormData();
-    // Use the decoded name for the form filename
+    // Determine content type from file extension
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType =
+        ext === '.txt' ? 'text/plain' : 'application/pdf';
     form.append('file', fs.createReadStream(filePath), {
         filename: originalName,
-        contentType: 'application/pdf',
+        contentType,
     });
 
     // The Python service endpoints take document_id as a query param

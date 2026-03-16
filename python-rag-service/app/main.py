@@ -190,6 +190,26 @@ def extract_text_pymupdf(file_path: str) -> str:
         print(f"Error extracting text: {e}")
     return text
 
+def extract_text_txt(file_path: str) -> str:
+    """Extract text from a plain text file."""
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except Exception as e:
+        print(f"Error reading text file: {e}")
+        return ""
+
+def extract_text(file_path: str) -> str:
+    """Extract text from a file based on its extension."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".pdf":
+        return extract_text_pymupdf(file_path)
+    elif ext == ".txt":
+        return extract_text_txt(file_path)
+    else:
+        print(f"Unsupported file extension: {ext}")
+        return ""
+
 def chunk_text(text: str, chunk_size=1000, overlap=200) -> List[str]:
     """A simple fallback chunker if LangChain isn't installed. Splits by char length."""
     chunks = []
@@ -224,7 +244,7 @@ def process_document_task(document_id: str, file_path: str):
     print(f"Processing document {document_id} from {file_path}")
     try:
         # 1. Parse
-        text = extract_text_pymupdf(file_path)
+        text = extract_text(file_path)
         if not text.strip():
             print(f"No text extracted from {document_id}")
             return
@@ -295,10 +315,13 @@ def process_document_late_chunking(document_id: str, file_path: str):
 @app.post("/api/rag/process")
 async def process_document(document_id: str, file: UploadFile = File(...)):
     """Uploads a file and processes it synchronously (parse, chunk, embed, insert to Milvus)."""
-    # Save file temporarily
+    # Save file temporarily with original extension
     temp_dir = "/tmp/rag_uploads"
     os.makedirs(temp_dir, exist_ok=True)
-    temp_path = os.path.join(temp_dir, f"{document_id}.pdf")
+    ext = os.path.splitext(file.filename or ".pdf")[1].lower()
+    if ext not in (".pdf", ".txt"):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}. Only .pdf and .txt are supported.")
+    temp_path = os.path.join(temp_dir, f"{document_id}{ext}")
     
     with open(temp_path, "wb") as buffer:
         content = await file.read()
