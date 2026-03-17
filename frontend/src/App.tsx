@@ -441,7 +441,7 @@ function App() {
                     break;
 
                   case 'status':
-                    if (event.status === 'generative') {
+                    if (event.status === 'generating') {
                       setGenerationStatus('generating');
                     } else if (event.status === 'compacting') {
                       setGenerationStatus('compacting');

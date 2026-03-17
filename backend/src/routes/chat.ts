@@ -338,6 +338,28 @@ router.post('/', async (req, res) => {
             `data: ${JSON.stringify({ type: 'session_id', id: activeId })}\n\n`,
         );
 
+        // 7. Event-driven completion tracking
+        // sendUserMessage() resolves BEFORE async auto-compaction/retry runs
+        // (pi-agent-core's emit() is fire-and-forget for async handlers).
+        // We keep the SSE stream open until the session is truly idle.
+        let resolveCompletion: () => void;
+        const completionPromise = new Promise<void>((resolve) => {
+            resolveCompletion = resolve;
+        });
+
+        const tryResolveIfIdle = () => {
+            // Give the async event handler time to start compaction/retry
+            setTimeout(() => {
+                if (
+                    !session.isStreaming &&
+                    !session.isCompacting &&
+                    !session.isRetrying
+                ) {
+                    resolveCompletion();
+                }
+            }, 250);
+        };
+
         // Listen to agent events to stream via SSE
         session.subscribe((event: any) => {
             if (event.type === 'tool_execution_start') {
@@ -375,27 +397,46 @@ router.post('/', async (req, res) => {
                     );
                 }
             } else if (event.type === 'auto_compaction_start') {
+                console.log(`[AUTO-COMPACT] Compaction started (reason: ${event.reason})`);
                 res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: event.reason })}\n\n`);
             } else if (event.type === 'auto_compaction_end') {
-                res.write(`data: ${JSON.stringify({ type: 'status', status: 'generative' })}\n\n`);
+                console.log(`[AUTO-COMPACT] Compaction ended (willRetry: ${event.willRetry}, aborted: ${event.aborted})`);
+                res.write(`data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`);
+                // If compaction ended without retry planned, check if we're done
+                if (!event.willRetry) {
+                    tryResolveIfIdle();
+                }
             } else if (event.type === 'auto_retry_start') {
+                console.log(`[AUTO-RETRY] Retry started (attempt: ${event.attempt}/${event.maxAttempts})`);
                 res.write(`data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: event.attempt, maxAttempts: event.maxAttempts })}\n\n`);
             } else if (event.type === 'auto_retry_end') {
-                res.write(`data: ${JSON.stringify({ type: 'status', status: 'generative' })}\n\n`);
+                console.log(`[AUTO-RETRY] Retry ended (success: ${event.success})`);
+                res.write(`data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`);
+                // After retry ends, the agent will run again via agent.continue()
+                // so we don't resolve here — wait for the next agent_end
+            } else if (event.type === 'agent_end') {
+                // agent_end fires when the agent loop finishes, but async compaction
+                // may start immediately after. Check after a delay.
+                tryResolveIfIdle();
             }
         });
 
         // Abort agent if client disconnects early
         req.on('close', () => {
             activeSessions.delete(activeId);
-            if (session.isStreaming) {
+            if (session.isStreaming || session.isCompacting) {
                 console.log('Client disconnected, aborting agent session...');
                 session.abort().catch(console.error);
             }
+            // Also resolve completion to prevent hanging
+            resolveCompletion();
         });
 
-        // 7. Send the user message to the agent
+        // 8. Send the user message to the agent
         await session.sendUserMessage(actualMessage);
+
+        // Wait for the session to be truly idle (including compaction + retry cycles)
+        await completionPromise;
 
         // Clean up active session
         activeSessions.delete(activeId);
