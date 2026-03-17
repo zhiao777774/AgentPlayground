@@ -295,6 +295,19 @@ router.get('/:id', async (req, res) => {
                         parentId: findNearestMessageParent(entry.parentId),
                         agentId: entry.data?.agentId || null,
                     });
+                } else if (entry.type === 'compaction') {
+                    // Turn compaction events into visible system messages
+                    // so users know the context window was summarized.
+                    messages.push({
+                        id: entry.id,
+                        parentId: findNearestMessageParent(entry.parentId),
+                        createdAt: entry.timestamp,
+                        role: 'system',
+                        isCompaction: true,
+                        content: `**[System Note: Context Limit Reached]**\n\nThe previous conversation history has been automatically compressed to save tokens. The agent now remembers the following summary:\n\n> ${entry.summary}`,
+                        toolCalls: [],
+                        activeAgentId: agentIdByEntry.get(entry.id) || null,
+                    });
                 }
             }
 

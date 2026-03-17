@@ -23,7 +23,8 @@ export interface Session {
 export interface Message {
     id: string;
     parentId?: string | null;
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'system';
+    isCompaction?: boolean;
     content: string;
     reasoning?: string;
     toolCalls?: ToolCall[];

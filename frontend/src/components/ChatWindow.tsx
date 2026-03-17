@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Message } from '../types/index';
-import { Bot, User, Wrench, CheckCircle2, XCircle, Loader2, ChevronRight, Pencil, ChevronLeft, Check, Quote, BookOpen } from 'lucide-react';
+import { Bot, User, Wrench, CheckCircle2, XCircle, Loader2, ChevronRight, Pencil, ChevronLeft, Check, Quote, BookOpen, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -178,6 +178,28 @@ export function ChatWindow({
                             .filter(Boolean);
 
                         const hasActiveCitations = orderedCitations.length > 0;
+
+                        if (msg.isCompaction) {
+                            return (
+                                <div key={msg.id || index} className="flex justify-center my-8 relative w-full px-4 select-text">
+                                    <div className="w-full max-w-3xl border border-yellow-200 dark:border-yellow-900/50 bg-yellow-50/80 dark:bg-yellow-900/10 rounded-2xl p-5 flex flex-col items-center text-center shadow-sm">
+                                        <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-600 font-bold mb-2 text-sm tracking-wide uppercase">
+                                            <Zap className="w-4 h-4" />
+                                            <span>Context Limit Reached</span>
+                                            <Zap className="w-4 h-4" />
+                                        </div>
+                                        <div className="text-sm text-yellow-700/80 dark:text-yellow-600/80 mb-4 max-w-xl leading-relaxed">
+                                            Previous conversation history has been automatically compressed to save tokens. The agent now only remembers the following summary:
+                                        </div>
+                                        <div className="w-full text-left bg-white/60 dark:bg-black/20 rounded-xl p-4 text-sm text-gray-700 dark:text-gray-300 border border-yellow-100 dark:border-yellow-900/30 prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-p:last:mb-0">
+                                            <ReactMarkdown>
+                                                {msg.content.replace('**[System Note: Context Limit Reached]**\n\nThe previous conversation history has been automatically compressed to save tokens. The agent now remembers the following summary:\n\n> ', '')}
+                                            </ReactMarkdown>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        }
 
                         return (
                             <div
