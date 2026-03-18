@@ -433,7 +433,34 @@ router.post('/', async (req, res) => {
         });
 
         // 8. Send the user message to the agent
-        await session.sendUserMessage(actualMessage);
+        try {
+            await session.sendUserMessage(actualMessage);
+        } catch (error: any) {
+            const isMiniMaxContextOverflow = error.message && error.message.includes('You passed') && error.message.includes("However, the model's context length is only");
+            
+            if (isMiniMaxContextOverflow) {
+                console.log('[AUTO-COMPACT] Detected unhandled context limit error from MiniMax API. Manually triggering compaction.');
+                res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: 'context limit approached (MiniMax Fallback)' })}\n\n`);
+                
+                try {
+                    await session.compact();
+                    res.write(`data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: 1, maxAttempts: 1 })}\n\n`);
+                    
+                    const messages = session.agent.state.messages;
+                    const lastMsg = messages[messages.length - 1];
+                    if (lastMsg?.role === 'assistant' && lastMsg.stopReason === 'error') {
+                        session.agent.replaceMessages(messages.slice(0, -1));
+                    }
+                    
+                    // Resume agent loop
+                    await session.agent.continue();
+                } catch (retryError) {
+                    throw retryError;
+                }
+            } else {
+                throw error; // Let outer block handle it
+            }
+        }
 
         // Wait for the session to be truly idle (including compaction + retry cycles)
         await completionPromise;
