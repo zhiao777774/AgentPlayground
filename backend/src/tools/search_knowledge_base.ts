@@ -27,7 +27,7 @@ export const search_knowledge_base: ToolDefinition<any, any> = {
     name: 'search_knowledge_base',
     label: 'Search Knowledge Base',
     description:
-        'Performs a semantic (RAG) search within the knowledge base documents to find content related to the query. This is specifically for searching inside PDF contents indexed by the system. Use this to answer questions about uploaded documents. If you need to know which documents exist, use list_knowledge_base_documents first.',
+        'Performs a semantic (RAG) search within the knowledge base documents to find content related to the query. This is specifically for searching inside PDF and TXT contents indexed by the system. Use this to answer questions about uploaded documents. If you need to know which documents exist, use list_knowledge_base_documents first.',
     parameters: searchKnowledgeBaseSchema,
     execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
         const query = params.query;

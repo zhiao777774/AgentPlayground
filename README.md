@@ -9,7 +9,7 @@ A conversational AI agent platform built with **React + Tailwind** (frontend), *
 - 🤖 **Multi-model support** — Switch between LLM providers (Ollama, OpenAI, vLLM, etc.) via `models.json`
 - 💬 **Real-time streaming** — SSE-based token streaming with think/reasoning display
 - 🌿 **Session branching** — Edit messages to create branches, navigate with ← → arrows
-- 🚀 **Advanced RAG Pipeline** — Upload PDFs to a dedicated Python Microservice, featuring Anthropic's Contextual Chunking and Milvus Vector Search.
+- 🚀 **Advanced RAG Pipeline** — Upload PDFs and text files to a dedicated Python Microservice, featuring Anthropic's Contextual Chunking and Milvus Vector Search.
 - 🔀 **Agent routing** — `/agent <id>` to switch agent context, `/agents` to list available agents
 - 📁 **Agent management** — Create, configure, and delete agents with a built-in file editor
 - 🧠 **Skills system** — Agents can have nested skill directories with collapsible folder tree UI
