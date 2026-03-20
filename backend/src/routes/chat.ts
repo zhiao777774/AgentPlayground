@@ -415,9 +415,40 @@ router.post('/', async (req, res) => {
                 // After retry ends, the agent will run again via agent.continue()
                 // so we don't resolve here — wait for the next agent_end
             } else if (event.type === 'agent_end') {
-                // agent_end fires when the agent loop finishes, but async compaction
-                // may start immediately after. Check after a delay.
-                tryResolveIfIdle();
+                const messages = session.agent.state.messages;
+                const lastMsg = messages[messages.length - 1];
+                let isMiniMaxContextOverflow = false;
+
+                if (lastMsg?.role === 'assistant' && lastMsg.stopReason === 'error') {
+                    const errorMessage = lastMsg.errorMessage || '';
+                    isMiniMaxContextOverflow = 
+                        errorMessage.includes('You passed') && 
+                        errorMessage.includes("However, the model's context length is only");
+                }
+
+                if (isMiniMaxContextOverflow) {
+                    console.log('[AUTO-COMPACT] Detected unhandled context limit error from MiniMax API. Manually triggering compaction.');
+                    res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: 'context limit approached (MiniMax Fallback)' })}\n\n`);
+                    
+                    // Process compaction in background and retry without resolving completion
+                    (async () => {
+                        try {
+                            session.agent.replaceMessages(messages.slice(0, -1));
+                            await session.compact();
+                            res.write(`data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: 1, maxAttempts: 1 })}\n\n`);
+                            res.write(`data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`);
+                            await session.agent.continue();
+                        } catch (e: any) {
+                            console.error('[AUTO-COMPACT] Fallback compaction failed', e);
+                            res.write(`data: ${JSON.stringify({ type: 'error', message: e.message })}\n\n`);
+                            resolveCompletion();
+                        }
+                    })();
+                } else {
+                    // agent_end fires when the agent loop finishes, but async compaction
+                    // may start immediately after. Check after a delay.
+                    tryResolveIfIdle();
+                }
             }
         });
 
@@ -433,34 +464,7 @@ router.post('/', async (req, res) => {
         });
 
         // 8. Send the user message to the agent
-        try {
-            await session.sendUserMessage(actualMessage);
-        } catch (error: any) {
-            const isMiniMaxContextOverflow = error.message && error.message.includes('You passed') && error.message.includes("However, the model's context length is only");
-            
-            if (isMiniMaxContextOverflow) {
-                console.log('[AUTO-COMPACT] Detected unhandled context limit error from MiniMax API. Manually triggering compaction.');
-                res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: 'context limit approached (MiniMax Fallback)' })}\n\n`);
-                
-                try {
-                    await session.compact();
-                    res.write(`data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: 1, maxAttempts: 1 })}\n\n`);
-                    
-                    const messages = session.agent.state.messages;
-                    const lastMsg = messages[messages.length - 1];
-                    if (lastMsg?.role === 'assistant' && lastMsg.stopReason === 'error') {
-                        session.agent.replaceMessages(messages.slice(0, -1));
-                    }
-                    
-                    // Resume agent loop
-                    await session.agent.continue();
-                } catch (retryError) {
-                    throw retryError;
-                }
-            } else {
-                throw error; // Let outer block handle it
-            }
-        }
+        await session.sendUserMessage(actualMessage);
 
         // Wait for the session to be truly idle (including compaction + retry cycles)
         await completionPromise;
