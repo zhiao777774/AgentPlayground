@@ -13,6 +13,21 @@ import { agent_list } from '../tools/agent_list.js';
 import { list_knowledge_base_documents } from '../tools/list_knowledge_base_documents.js';
 import { search_knowledge_base } from '../tools/search_knowledge_base.js';
 
+// --- Custom Fallback for Unhandled Context Window Errors ---
+// The underlying pi-ai SDK detects context length errors via predefined regex patterns.
+// If you are using custom models (e.g. Minimax, custom local models) whose error messages
+// change or aren't supported natively, add their error regex patterns here.
+const CUSTOM_OVERFLOW_PATTERNS: RegExp[] = [
+    // MiniMax (e.g. "400 You passed X input tokens... However, the model's context length is only...")
+    /You passed.*However, the model's context length is only/i,
+];
+
+// Helper to check if an error message matches any custom overflow patterns
+function checkCustomContextOverflow(errorMessage: string | undefined): boolean {
+    if (!errorMessage) return false;
+    return CUSTOM_OVERFLOW_PATTERNS.some(pattern => pattern.test(errorMessage));
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 const sessionsDir = path.resolve(__dirname, '../../memory/sessions');
@@ -415,20 +430,17 @@ router.post('/', async (req, res) => {
                 // After retry ends, the agent will run again via agent.continue()
                 // so we don't resolve here — wait for the next agent_end
             } else if (event.type === 'agent_end') {
-                const messages = session.agent.state.messages;
+                const messages = event.messages; // Using event.messages directly
                 const lastMsg = messages[messages.length - 1];
-                let isMiniMaxContextOverflow = false;
+                let isCustomContextOverflow = false;
 
                 if (lastMsg?.role === 'assistant' && lastMsg.stopReason === 'error') {
-                    const errorMessage = lastMsg.errorMessage || '';
-                    isMiniMaxContextOverflow = 
-                        errorMessage.includes('You passed') && 
-                        errorMessage.includes("However, the model's context length is only");
+                    isCustomContextOverflow = checkCustomContextOverflow(lastMsg.errorMessage);
                 }
 
-                if (isMiniMaxContextOverflow) {
-                    console.log('[AUTO-COMPACT] Detected unhandled context limit error from MiniMax API. Manually triggering compaction.');
-                    res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: 'context limit approached (MiniMax Fallback)' })}\n\n`);
+                if (isCustomContextOverflow) {
+                    console.log('[AUTO-COMPACT] Detected unhandled context limit error from custom model. Manually triggering compaction.');
+                    res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: 'context limit approached (Custom Fallback)' })}\n\n`);
                     
                     // Process compaction in background and retry without resolving completion
                     (async () => {
