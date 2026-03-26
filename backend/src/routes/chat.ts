@@ -12,6 +12,7 @@ import { memory_get } from '../tools/memory_get.js';
 import { agent_list } from '../tools/agent_list.js';
 import { list_knowledge_base_documents } from '../tools/list_knowledge_base_documents.js';
 import { search_knowledge_base } from '../tools/search_knowledge_base.js';
+import { setTimeout } from 'timers/promises';
 
 // --- Custom Fallback for Unhandled Context Window Errors ---
 // The underlying pi-ai SDK detects context length errors via predefined regex patterns.
@@ -25,7 +26,9 @@ const CUSTOM_OVERFLOW_PATTERNS: RegExp[] = [
 // Helper to check if an error message matches any custom overflow patterns
 function checkCustomContextOverflow(errorMessage: string | undefined): boolean {
     if (!errorMessage) return false;
-    return CUSTOM_OVERFLOW_PATTERNS.some(pattern => pattern.test(errorMessage));
+    return CUSTOM_OVERFLOW_PATTERNS.some((pattern) =>
+        pattern.test(errorMessage),
+    );
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -357,6 +360,7 @@ router.post('/', async (req, res) => {
         // sendUserMessage() resolves BEFORE async auto-compaction/retry runs
         // (pi-agent-core's emit() is fire-and-forget for async handlers).
         // We keep the SSE stream open until the session is truly idle.
+
         let resolveCompletion: () => void;
         const completionPromise = new Promise<void>((resolve) => {
             resolveCompletion = resolve;
@@ -412,21 +416,37 @@ router.post('/', async (req, res) => {
                     );
                 }
             } else if (event.type === 'auto_compaction_start') {
-                console.log(`[AUTO-COMPACT] Compaction started (reason: ${event.reason})`);
-                res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: event.reason })}\n\n`);
+                console.log(
+                    `[AUTO-COMPACT] Compaction started (reason: ${event.reason})`,
+                );
+                res.write(
+                    `data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: event.reason })}\n\n`,
+                );
             } else if (event.type === 'auto_compaction_end') {
-                console.log(`[AUTO-COMPACT] Compaction ended (willRetry: ${event.willRetry}, aborted: ${event.aborted})`);
-                res.write(`data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`);
+                console.log(
+                    `[AUTO-COMPACT] Compaction ended (willRetry: ${event.willRetry}, aborted: ${event.aborted})`,
+                );
+                res.write(
+                    `data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`,
+                );
                 // If compaction ended without retry planned, check if we're done
                 if (!event.willRetry) {
                     tryResolveIfIdle();
                 }
             } else if (event.type === 'auto_retry_start') {
-                console.log(`[AUTO-RETRY] Retry started (attempt: ${event.attempt}/${event.maxAttempts})`);
-                res.write(`data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: event.attempt, maxAttempts: event.maxAttempts })}\n\n`);
+                console.log(
+                    `[AUTO-RETRY] Retry started (attempt: ${event.attempt}/${event.maxAttempts})`,
+                );
+                res.write(
+                    `data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: event.attempt, maxAttempts: event.maxAttempts })}\n\n`,
+                );
             } else if (event.type === 'auto_retry_end') {
-                console.log(`[AUTO-RETRY] Retry ended (success: ${event.success})`);
-                res.write(`data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`);
+                console.log(
+                    `[AUTO-RETRY] Retry ended (success: ${event.success})`,
+                );
+                res.write(
+                    `data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`,
+                );
                 // After retry ends, the agent will run again via agent.continue()
                 // so we don't resolve here — wait for the next agent_end
             } else if (event.type === 'agent_end') {
@@ -434,28 +454,30 @@ router.post('/', async (req, res) => {
                 const lastMsg = messages[messages.length - 1];
                 let isCustomContextOverflow = false;
 
-                if (lastMsg?.role === 'assistant' && lastMsg.stopReason === 'error') {
-                    isCustomContextOverflow = checkCustomContextOverflow(lastMsg.errorMessage);
+                if (
+                    lastMsg?.role === 'assistant' &&
+                    lastMsg.stopReason === 'error'
+                ) {
+                    isCustomContextOverflow = checkCustomContextOverflow(
+                        lastMsg.errorMessage,
+                    );
                 }
 
                 if (isCustomContextOverflow) {
-                    console.log('[AUTO-COMPACT] Detected unhandled context limit error from custom model. Manually triggering compaction.');
-                    res.write(`data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: 'context limit approached (Custom Fallback)' })}\n\n`);
+                    // Popping the error message from the context window is already handled
+                    // natively inside `_runAutoCompaction` if we pass 'overflow'.
+                    console.log(
+                        '[AUTO-COMPACT] Detected unhandled context limit error from custom model. Manually triggering native compaction.',
+                    );
                     
-                    // Process compaction in background and retry without resolving completion
-                    (async () => {
-                        try {
-                            session.agent.replaceMessages(messages.slice(0, -1));
-                            await session.compact();
-                            res.write(`data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: 1, maxAttempts: 1 })}\n\n`);
-                            res.write(`data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`);
-                            await session.agent.continue();
-                        } catch (e: any) {
-                            console.error('[AUTO-COMPACT] Fallback compaction failed', e);
-                            res.write(`data: ${JSON.stringify({ type: 'error', message: e.message })}\n\n`);
-                            resolveCompletion();
-                        }
-                    })();
+                    // We directly tap into the internal _runAutoCompaction method.
+                    // This elegantly preserves all native event emission (auto_compaction_start/end),
+                    // tracks internal loading states, and delegates the retry execution.
+                    (session as any)._runAutoCompaction('overflow', true).catch((e: any) => {
+                        console.error('[AUTO-COMPACT] Native fallback compaction failed', e);
+                        res.write(`data: ${JSON.stringify({ type: 'error', message: e.message })}\n\n`);
+                        resolveCompletion();
+                    });
                 } else {
                     // agent_end fires when the agent loop finishes, but async compaction
                     // may start immediately after. Check after a delay.
