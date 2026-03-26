@@ -346,6 +346,27 @@ router.post('/', async (req, res) => {
             ],
         });
 
+        // 6.5 Bootstrap AGENTS.md and MEMORY.md into System Prompt
+        // This ensures that every request sent to this specific agent has its
+        // persistent rules and memories injected into the context window.
+        if (targetAgentId) {
+            const agentsMdPath = path.join(activeAgentDir, 'AGENTS.md');
+            const memoryMdPath = path.join(activeAgentDir, 'MEMORY.md');
+            let bootstrapContext = '';
+
+            if (fs.existsSync(agentsMdPath)) {
+                bootstrapContext += `\n\n# Project Rules (AGENTS.md)\n${fs.readFileSync(agentsMdPath, 'utf8')}`;
+            }
+            if (fs.existsSync(memoryMdPath)) {
+                bootstrapContext += `\n\n# Long-term Memory (MEMORY.md)\n${fs.readFileSync(memoryMdPath, 'utf8')}`;
+            }
+
+            if (bootstrapContext) {
+                const baseSystemPrompt = session.systemPrompt;
+                session.agent.setSystemPrompt(baseSystemPrompt + bootstrapContext);
+            }
+        }
+
         // Register this session so steer endpoint can reach it
         const activeId =
             sessionManager.getSessionId() ?? sessionId ?? Date.now().toString();
