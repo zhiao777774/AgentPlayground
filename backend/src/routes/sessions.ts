@@ -140,7 +140,8 @@ router.get('/:id', async (req, res) => {
                     if (
                         (parent.type === 'message' &&
                             !toolResultIds.has(parent.id)) ||
-                        parent.type === 'custom_message'
+                        parent.type === 'custom_message' ||
+                        parent.type === 'compaction'
                     )
                         return parent.id;
                     currentId = parent.parentId;
@@ -193,6 +194,7 @@ router.get('/:id', async (req, res) => {
                             .filter((c: any) => c.type === 'text')
                             .map((c: any) => c.text || '')
                             .join('');
+                        textContent += msg.errorMessage || '';
                         reasoningContent = msg.content
                             .filter((c: any) => c.type === 'thinking')
                             .map((c: any) => c.thinking || '')
@@ -354,14 +356,14 @@ router.get('/:id', async (req, res) => {
                 ) {
                     const usage = (entry.message as any)?.usage;
                     const stopReason = (entry.message as any)?.stopReason;
-                    
+
                     if (usage) {
                         const tokens =
                             (usage.input || 0) +
                             (usage.output || 0) +
                             (usage.cacheRead || 0) +
                             (usage.cacheWrite || 0);
-                        
+
                         // If hitting an error or no tokens, continue searching backward to find the last valid measurement
                         if (tokens === 0 || stopReason === 'error') {
                             continue;

@@ -368,7 +368,7 @@ router.post('/', async (req, res) => {
 
         const tryResolveIfIdle = () => {
             // Give the async event handler time to start compaction/retry
-            setTimeout(() => {
+            global.setTimeout(() => {
                 if (
                     !session.isStreaming &&
                     !session.isCompacting &&
