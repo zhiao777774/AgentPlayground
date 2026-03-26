@@ -12,7 +12,6 @@ import { memory_get } from '../tools/memory_get.js';
 import { agent_list } from '../tools/agent_list.js';
 import { list_knowledge_base_documents } from '../tools/list_knowledge_base_documents.js';
 import { search_knowledge_base } from '../tools/search_knowledge_base.js';
-import { setTimeout } from 'timers/promises';
 
 // --- Custom Fallback for Unhandled Context Window Errors ---
 // The underlying pi-ai SDK detects context length errors via predefined regex patterns.
@@ -368,7 +367,7 @@ router.post('/', async (req, res) => {
 
         const tryResolveIfIdle = () => {
             // Give the async event handler time to start compaction/retry
-            global.setTimeout(() => {
+            setTimeout(() => {
                 if (
                     !session.isStreaming &&
                     !session.isCompacting &&
