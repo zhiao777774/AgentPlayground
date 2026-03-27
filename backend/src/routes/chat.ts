@@ -383,12 +383,21 @@ router.post('/', async (req, res) => {
                 'USER.md',
                 'HEARTBEAT.md',
                 'BOOTSTRAP.md',
-                'MEMORY.md',
-                'memory.md'
+                'MEMORY.md' // Represents the long-term memory slot
             ];
 
-            for (const filename of bootstrapFiles) {
-                const filePath = path.join(activeAgentDir, filename);
+            for (let filename of bootstrapFiles) {
+                let filePath = path.join(activeAgentDir, filename);
+                
+                // OpenClaw lowercase fallback for memory
+                if (filename === 'MEMORY.md' && !fs.existsSync(filePath)) {
+                    const fallbackPath = path.join(activeAgentDir, 'memory.md');
+                    if (fs.existsSync(fallbackPath)) {
+                        filename = 'memory.md';
+                        filePath = fallbackPath;
+                    }
+                }
+
                 let contentToAdd = '';
 
                 if (fs.existsSync(filePath)) {
