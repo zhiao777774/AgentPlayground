@@ -30,6 +30,26 @@ function checkCustomContextOverflow(errorMessage: string | undefined): boolean {
     );
 }
 
+// --- OpenClaw-style Memory Bootstrapping Helpers ---
+const BOOTSTRAP_MAX_CHARS = 20000;
+
+function truncateMemory(content: string, filename: string): string {
+    if (content.length <= BOOTSTRAP_MAX_CHARS) return content;
+    const topLength = Math.floor(BOOTSTRAP_MAX_CHARS * 0.7);
+    const bottomLength = Math.floor(BOOTSTRAP_MAX_CHARS * 0.2);
+    const topPart = content.substring(0, topLength);
+    const bottomPart = content.substring(content.length - bottomLength);
+    return `${topPart}\n\n... [${content.length - topLength - bottomLength} characters truncated from ${filename} for context limits] ...\n\n${bottomPart}`;
+}
+
+function getDailyLog(date: Date, memoryDir: string): string | null {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const filepath = path.join(memoryDir, `${yyyy}-${mm}-${dd}.md`);
+    return fs.existsSync(filepath) ? fs.readFileSync(filepath, 'utf8') : null;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 const sessionsDir = path.resolve(__dirname, '../../memory/sessions');
@@ -352,16 +372,35 @@ router.post('/', async (req, res) => {
         if (targetAgentId) {
             const agentsMdPath = path.join(activeAgentDir, 'AGENTS.md');
             const memoryMdPath = path.join(activeAgentDir, 'MEMORY.md');
+            const memoryDir = path.join(activeAgentDir, 'memory');
             let bootstrapContext = '';
 
             if (fs.existsSync(agentsMdPath)) {
-                bootstrapContext += `\n\n# Project Rules (AGENTS.md)\n${fs.readFileSync(agentsMdPath, 'utf8')}`;
+                bootstrapContext += `\n\n# Project Rules (AGENTS.md)\n${truncateMemory(fs.readFileSync(agentsMdPath, 'utf8'), 'AGENTS.md')}`;
             }
             if (fs.existsSync(memoryMdPath)) {
-                bootstrapContext += `\n\n# Long-term Memory (MEMORY.md)\n${fs.readFileSync(memoryMdPath, 'utf8')}`;
+                bootstrapContext += `\n\n# Long-term Memory (MEMORY.md)\n${truncateMemory(fs.readFileSync(memoryMdPath, 'utf8'), 'MEMORY.md')}`;
+            }
+
+            // Load Today's and Yesterday's logs
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+
+            const yesterdayLog = getDailyLog(yesterday, memoryDir);
+            if (yesterdayLog) {
+                bootstrapContext += `\n\n# Yesterday's Log\n${truncateMemory(yesterdayLog, 'yesterday log')}`;
+            }
+            
+            const todayLog = getDailyLog(today, memoryDir);
+            if (todayLog) {
+                bootstrapContext += `\n\n# Today's Log\n${truncateMemory(todayLog, 'today log')}`;
             }
 
             if (bootstrapContext) {
+                // Add explicit instructions for memory management
+                bootstrapContext += `\n\n## Memory Operation Manual\nIf the user says "remember this", you must write it to the corresponding memory file (like \`memory/YYYY-MM-DD.md\` or \`MEMORY.md\`) rather than just keeping it in your immediate context.`;
+
                 const baseSystemPrompt = session.systemPrompt;
                 session.agent.setSystemPrompt(baseSystemPrompt + bootstrapContext);
             }
