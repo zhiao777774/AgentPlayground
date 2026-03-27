@@ -31,12 +31,13 @@ function checkCustomContextOverflow(errorMessage: string | undefined): boolean {
 }
 
 // --- OpenClaw-style Memory Bootstrapping Helpers ---
-const BOOTSTRAP_MAX_CHARS = 20000;
+const BOOTSTRAP_MAX_CHARS = parseInt(process.env.BOOTSTRAP_MAX_CHARS || '20000', 10);
+const BOOTSTRAP_TOTAL_MAX_CHARS = parseInt(process.env.BOOTSTRAP_TOTAL_MAX_CHARS || '150000', 10);
 
-function truncateMemory(content: string, filename: string): string {
-    if (content.length <= BOOTSTRAP_MAX_CHARS) return content;
-    const topLength = Math.floor(BOOTSTRAP_MAX_CHARS * 0.7);
-    const bottomLength = Math.floor(BOOTSTRAP_MAX_CHARS * 0.2);
+function truncateMemory(content: string, filename: string, maxChars: number = BOOTSTRAP_MAX_CHARS): string {
+    if (content.length <= maxChars) return content;
+    const topLength = Math.floor(maxChars * 0.7);
+    const bottomLength = Math.floor(maxChars * 0.2);
     const topPart = content.substring(0, topLength);
     const bottomPart = content.substring(content.length - bottomLength);
     return `${topPart}\n\n... [${content.length - topLength - bottomLength} characters truncated from ${filename} for context limits] ...\n\n${bottomPart}`;
@@ -370,7 +371,8 @@ router.post('/', async (req, res) => {
         // This ensures that every request sent to this specific agent has its
         // persistent rules, persona, and memories injected into the context window.
         if (targetAgentId) {
-            let bootstrapContext = '';
+            let bootstrapContext = '\n\n# Workspace Files\n';
+            let totalBootstrapChars = bootstrapContext.length;
             
             // Standard OpenClaw Bootstrap Files
             const bootstrapFiles = [
@@ -387,31 +389,76 @@ router.post('/', async (req, res) => {
 
             for (const filename of bootstrapFiles) {
                 const filePath = path.join(activeAgentDir, filename);
+                let contentToAdd = '';
+
                 if (fs.existsSync(filePath)) {
                     const content = fs.readFileSync(filePath, 'utf8');
                     if (content.trim()) {
-                        bootstrapContext += `\n\n# Project Context (${filename})\n${truncateMemory(content, filename)}`;
+                        contentToAdd = truncateMemory(content, filename);
+                    }
+                } else {
+                    // OpenClaw missing file marker
+                    contentToAdd = `_(Not provided)_`;
+                }
+
+                if (contentToAdd) {
+                    const sectionHeader = `\n## ${filename}\n`;
+                    let formattedSection = sectionHeader + contentToAdd;
+                    
+                    // Enforce global bootstrap character limit
+                    if (totalBootstrapChars + formattedSection.length > BOOTSTRAP_TOTAL_MAX_CHARS) {
+                        const remainingChars = Math.max(0, BOOTSTRAP_TOTAL_MAX_CHARS - totalBootstrapChars - sectionHeader.length);
+                        if (remainingChars > 500) {
+                            formattedSection = sectionHeader + truncateMemory(contentToAdd, filename, remainingChars);
+                            bootstrapContext += formattedSection;
+                            totalBootstrapChars += formattedSection.length;
+                        } else {
+                            bootstrapContext += `${sectionHeader}_(Truncated due to total bootstrap limit)_`;
+                        }
+                        break; // Stop processing further files if we've hit the global cap
+                    } else {
+                        bootstrapContext += formattedSection;
+                        totalBootstrapChars += formattedSection.length;
                     }
                 }
             }
 
-            // Load Today's and Yesterday's logs
+            // Load Today's and Yesterday's logs seamlessly into the remaining limit
             const memoryDir = path.join(activeAgentDir, 'memory');
             const today = new Date();
             const yesterday = new Date(today);
             yesterday.setDate(yesterday.getDate() - 1);
 
-            const yesterdayLog = getDailyLog(yesterday, memoryDir);
-            if (yesterdayLog) {
-                bootstrapContext += `\n\n# Yesterday's Log\n${truncateMemory(yesterdayLog, 'yesterday log')}`;
+            const logsToLoad = [
+                { date: yesterday, label: "Yesterday's Log" },
+                { date: today, label: "Today's Log" }
+            ];
+
+            for (const log of logsToLoad) {
+                const logContent = getDailyLog(log.date, memoryDir);
+                if (logContent) {
+                    const sectionHeader = `\n## ${log.label}\n`;
+                    const contentToAdd = truncateMemory(logContent, log.label);
+                    let formattedSection = sectionHeader + contentToAdd;
+
+                    if (totalBootstrapChars + formattedSection.length > BOOTSTRAP_TOTAL_MAX_CHARS) {
+                        const remainingChars = Math.max(0, BOOTSTRAP_TOTAL_MAX_CHARS - totalBootstrapChars - sectionHeader.length);
+                        if (remainingChars > 500) {
+                            formattedSection = sectionHeader + truncateMemory(logContent, log.label, remainingChars);
+                            bootstrapContext += formattedSection;
+                            totalBootstrapChars += formattedSection.length;
+                        } else {
+                            bootstrapContext += `${sectionHeader}_(Truncated)_`;
+                        }
+                        break;
+                    } else {
+                        bootstrapContext += formattedSection;
+                        totalBootstrapChars += formattedSection.length;
+                    }
+                }
             }
 
-            const todayLog = getDailyLog(today, memoryDir);
-            if (todayLog) {
-                bootstrapContext += `\n\n# Today's Log\n${truncateMemory(todayLog, 'today log')}`;
-            }
-
-            if (bootstrapContext) {
+            if (bootstrapContext.length > 25) { // Meaning we added more than just "# Workspace Files\n"
                 // Add explicit instructions for memory management
                 bootstrapContext += `\n\n## Memory Operation Manual\nIf the user says "remember this", you must write it to the corresponding memory file (like \`memory/YYYY-MM-DD.md\` or \`MEMORY.md\`) rather than just keeping it in your immediate context.`;
 
