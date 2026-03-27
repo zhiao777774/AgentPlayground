@@ -366,23 +366,37 @@ router.post('/', async (req, res) => {
             ],
         });
 
-        // 6.5 Bootstrap AGENTS.md and MEMORY.md into System Prompt
+        // 6.5 Bootstrap OpenClaw Spec Context Files into System Prompt
         // This ensures that every request sent to this specific agent has its
-        // persistent rules and memories injected into the context window.
+        // persistent rules, persona, and memories injected into the context window.
         if (targetAgentId) {
-            const agentsMdPath = path.join(activeAgentDir, 'AGENTS.md');
-            const memoryMdPath = path.join(activeAgentDir, 'MEMORY.md');
-            const memoryDir = path.join(activeAgentDir, 'memory');
             let bootstrapContext = '';
+            
+            // Standard OpenClaw Bootstrap Files
+            const bootstrapFiles = [
+                'AGENTS.md',
+                'SOUL.md',
+                'TOOLS.md',
+                'IDENTITY.md',
+                'USER.md',
+                'HEARTBEAT.md',
+                'BOOTSTRAP.md',
+                'MEMORY.md',
+                'memory.md'
+            ];
 
-            if (fs.existsSync(agentsMdPath)) {
-                bootstrapContext += `\n\n# Project Rules (AGENTS.md)\n${truncateMemory(fs.readFileSync(agentsMdPath, 'utf8'), 'AGENTS.md')}`;
-            }
-            if (fs.existsSync(memoryMdPath)) {
-                bootstrapContext += `\n\n# Long-term Memory (MEMORY.md)\n${truncateMemory(fs.readFileSync(memoryMdPath, 'utf8'), 'MEMORY.md')}`;
+            for (const filename of bootstrapFiles) {
+                const filePath = path.join(activeAgentDir, filename);
+                if (fs.existsSync(filePath)) {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    if (content.trim()) {
+                        bootstrapContext += `\n\n# Project Context (${filename})\n${truncateMemory(content, filename)}`;
+                    }
+                }
             }
 
             // Load Today's and Yesterday's logs
+            const memoryDir = path.join(activeAgentDir, 'memory');
             const today = new Date();
             const yesterday = new Date(today);
             yesterday.setDate(yesterday.getDate() - 1);
