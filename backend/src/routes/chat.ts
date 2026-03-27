@@ -584,12 +584,12 @@ router.post('/', async (req, res) => {
             const usage = session.getContextUsage();
             if (usage) {
                 const modelContextWindow = model?.contextWindow || 128000;
-                const reserveTokensFloor = 20000;
+                const modelMaxTokens = model?.maxTokens || 4096;
+                
+                // Ensure we have enough room left to generate one full MaxTokens response plus tool usage overhead
+                const reserveTokensFloor = modelMaxTokens + 2000;
                 const softThresholdTokens = 4000;
-                const flushTrigger =
-                    modelContextWindow -
-                    reserveTokensFloor -
-                    softThresholdTokens;
+                const flushTrigger = Math.max(0, modelContextWindow - reserveTokensFloor - softThresholdTokens);
 
                 // Use the official pi-coding-agent ContextUsage interface
                 const totalTokens = usage.tokens || 0;
