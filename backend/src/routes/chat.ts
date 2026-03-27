@@ -391,7 +391,7 @@ router.post('/', async (req, res) => {
             if (yesterdayLog) {
                 bootstrapContext += `\n\n# Yesterday's Log\n${truncateMemory(yesterdayLog, 'yesterday log')}`;
             }
-            
+
             const todayLog = getDailyLog(today, memoryDir);
             if (todayLog) {
                 bootstrapContext += `\n\n# Today's Log\n${truncateMemory(todayLog, 'today log')}`;
@@ -402,7 +402,9 @@ router.post('/', async (req, res) => {
                 bootstrapContext += `\n\n## Memory Operation Manual\nIf the user says "remember this", you must write it to the corresponding memory file (like \`memory/YYYY-MM-DD.md\` or \`MEMORY.md\`) rather than just keeping it in your immediate context.`;
 
                 const baseSystemPrompt = session.systemPrompt;
-                session.agent.setSystemPrompt(baseSystemPrompt + bootstrapContext);
+                session.agent.setSystemPrompt(
+                    baseSystemPrompt + bootstrapContext,
+                );
             }
         }
 
@@ -447,7 +449,9 @@ router.post('/', async (req, res) => {
                 if (event.type === 'agent_end') {
                     tryResolveIfIdle();
                 } else if (event.type === 'tool_execution_start') {
-                    res.write(`data: ${JSON.stringify({ type: 'status', status: 'memorizing' })}\n\n`);
+                    res.write(
+                        `data: ${JSON.stringify({ type: 'status', status: 'memorizing' })}\n\n`,
+                    );
                 }
                 return;
             }
@@ -540,15 +544,22 @@ router.post('/', async (req, res) => {
                     console.log(
                         '[AUTO-COMPACT] Detected unhandled context limit error from custom model. Manually triggering native compaction.',
                     );
-                    
+
                     // We directly tap into the internal _runAutoCompaction method.
                     // This elegantly preserves all native event emission (auto_compaction_start/end),
                     // tracks internal loading states, and delegates the retry execution.
-                    (session as any)._runAutoCompaction('overflow', true).catch((e: any) => {
-                        console.error('[AUTO-COMPACT] Native fallback compaction failed', e);
-                        res.write(`data: ${JSON.stringify({ type: 'error', message: e.message })}\n\n`);
-                        resolveCompletion();
-                    });
+                    (session as any)
+                        ._runAutoCompaction('overflow', true)
+                        .catch((e: any) => {
+                            console.error(
+                                '[AUTO-COMPACT] Native fallback compaction failed',
+                                e,
+                            );
+                            res.write(
+                                `data: ${JSON.stringify({ type: 'error', message: e.message })}\n\n`,
+                            );
+                            resolveCompletion();
+                        });
                 } else {
                     // agent_end fires when the agent loop finishes, but async compaction
                     // may start immediately after. Check after a delay.
@@ -575,51 +586,79 @@ router.post('/', async (req, res) => {
                 const modelContextWindow = model?.contextWindow || 128000;
                 const reserveTokensFloor = 20000;
                 const softThresholdTokens = 4000;
-                const flushTrigger = modelContextWindow - reserveTokensFloor - softThresholdTokens;
+                const flushTrigger =
+                    modelContextWindow -
+                    reserveTokensFloor -
+                    softThresholdTokens;
 
-                // Safely calculate total tokens depending on how pi-coding-agent structures ContextUsage
-                const totalTokens = (usage as any).totalTokens || 
-                    ((usage as any).input || 0) + ((usage as any).output || 0) + 
-                    ((usage as any).cacheRead || 0) + ((usage as any).cacheWrite || 0);
+                // Use the official pi-coding-agent ContextUsage interface
+                const totalTokens = usage.tokens || 0;
 
                 if (totalTokens > flushTrigger) {
-                    const lastFlushTokens = sessionManager.getEntries()
-                        .find((e: any) => e.message?.content?.type === 'memory_flush_checkpoint')
-                        ?.message?.content?.tokensUsed || 0;
+                    const lastFlushTokens =
+                        sessionManager
+                            .getEntries()
+                            .find(
+                                (e: any) =>
+                                    e.message?.content?.type ===
+                                    'memory_flush_checkpoint',
+                            )?.message?.content?.tokensUsed || 0;
 
                     // Only flush if we haven't flushed recently in this compaction cycle.
-                    if (totalTokens > lastFlushTokens + 10000 || lastFlushTokens === 0 || totalTokens < lastFlushTokens) {
-                        console.log(`[MEMORY FLUSH] Triggering pre-compaction flush at ${totalTokens} tokens (Threshold: ${flushTrigger}).`);
-                        res.write(`data: ${JSON.stringify({ type: 'status', status: 'memorizing', reason: 'Pre-compaction memory flush' })}\n\n`);
-                        
+                    if (
+                        totalTokens > lastFlushTokens + 10000 ||
+                        lastFlushTokens === 0 ||
+                        totalTokens < lastFlushTokens
+                    ) {
+                        console.log(
+                            `[MEMORY FLUSH] Triggering pre-compaction flush at ${totalTokens} tokens (Threshold: ${flushTrigger}).`,
+                        );
+                        res.write(
+                            `data: ${JSON.stringify({ type: 'status', status: 'memorizing', reason: 'Pre-compaction memory flush' })}\n\n`,
+                        );
+
                         isFlushingMemory = true;
 
                         const silentMessage = `[SYSTEM] Session nearing auto-compaction. You are about to lose detailed history. Please use your write tools to store any lasting architectural decisions, bug fixes, or user preferences to memory/YYYY-MM-DD.md (or MEMORY.md). If there is absolutely nothing worth remembering this cycle, reply exactly with NO_REPLY.`;
-                        
+
                         session.agent.state.messages.push({
                             role: 'user',
                             content: [{ type: 'text', text: silentMessage }],
-                            timestamp: Date.now()
+                            timestamp: Date.now(),
                         } as any);
 
-                        const startIndex = session.agent.state.messages.length - 1;
-                        
+                        const startIndex =
+                            session.agent.state.messages.length - 1;
+
                         try {
                             await session.agent.continue();
                         } catch (e) {
-                            console.error("[MEMORY FLUSH] Error during silent flush:", e);
+                            console.error(
+                                '[MEMORY FLUSH] Error during silent flush:',
+                                e,
+                            );
                         }
 
-                        sessionManager.appendCustomEntry('memory_flush_checkpoint', { type: 'memory_flush_checkpoint', tokensUsed: totalTokens });
+                        sessionManager.appendCustomEntry(
+                            'memory_flush_checkpoint',
+                            {
+                                type: 'memory_flush_checkpoint',
+                                tokensUsed: totalTokens,
+                            },
+                        );
 
                         // Erase the silent dialogue from the agent's memory
                         session.agent.replaceMessages(
-                            session.agent.state.messages.slice(0, startIndex)
+                            session.agent.state.messages.slice(0, startIndex),
                         );
-                        
+
                         isFlushingMemory = false;
-                        console.log(`[MEMORY FLUSH] Flush completed. Resuming actual request.`);
-                        res.write(`data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`);
+                        console.log(
+                            `[MEMORY FLUSH] Flush completed. Resuming actual request.`,
+                        );
+                        res.write(
+                            `data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`,
+                        );
                     }
                 }
             }
