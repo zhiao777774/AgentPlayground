@@ -31,10 +31,20 @@ function checkCustomContextOverflow(errorMessage: string | undefined): boolean {
 }
 
 // --- OpenClaw-style Memory Bootstrapping Helpers ---
-const BOOTSTRAP_MAX_CHARS = parseInt(process.env.BOOTSTRAP_MAX_CHARS || '20000', 10);
-const BOOTSTRAP_TOTAL_MAX_CHARS = parseInt(process.env.BOOTSTRAP_TOTAL_MAX_CHARS || '150000', 10);
+const BOOTSTRAP_MAX_CHARS = parseInt(
+    process.env.BOOTSTRAP_MAX_CHARS || '20000',
+    10,
+);
+const BOOTSTRAP_TOTAL_MAX_CHARS = parseInt(
+    process.env.BOOTSTRAP_TOTAL_MAX_CHARS || '150000',
+    10,
+);
 
-function truncateMemory(content: string, filename: string, maxChars: number = BOOTSTRAP_MAX_CHARS): string {
+function truncateMemory(
+    content: string,
+    filename: string,
+    maxChars: number = BOOTSTRAP_MAX_CHARS,
+): string {
     if (content.length <= maxChars) return content;
     const topLength = Math.floor(maxChars * 0.7);
     const bottomLength = Math.floor(maxChars * 0.2);
@@ -373,7 +383,7 @@ router.post('/', async (req, res) => {
         if (targetAgentId) {
             let bootstrapContext = '\n\n# Workspace Files\n';
             let totalBootstrapChars = bootstrapContext.length;
-            
+
             // Standard OpenClaw Bootstrap Files
             const bootstrapFiles = [
                 'AGENTS.md',
@@ -383,12 +393,12 @@ router.post('/', async (req, res) => {
                 'USER.md',
                 'HEARTBEAT.md',
                 'BOOTSTRAP.md',
-                'MEMORY.md' // Represents the long-term memory slot
+                'MEMORY.md', // Represents the long-term memory slot
             ];
 
             for (let filename of bootstrapFiles) {
                 let filePath = path.join(activeAgentDir, filename);
-                
+
                 // OpenClaw lowercase fallback for memory
                 if (filename === 'MEMORY.md' && !fs.existsSync(filePath)) {
                     const fallbackPath = path.join(activeAgentDir, 'memory.md');
@@ -413,12 +423,26 @@ router.post('/', async (req, res) => {
                 if (contentToAdd) {
                     const sectionHeader = `\n## ${filename}\n`;
                     let formattedSection = sectionHeader + contentToAdd;
-                    
+
                     // Enforce global bootstrap character limit
-                    if (totalBootstrapChars + formattedSection.length > BOOTSTRAP_TOTAL_MAX_CHARS) {
-                        const remainingChars = Math.max(0, BOOTSTRAP_TOTAL_MAX_CHARS - totalBootstrapChars - sectionHeader.length);
+                    if (
+                        totalBootstrapChars + formattedSection.length >
+                        BOOTSTRAP_TOTAL_MAX_CHARS
+                    ) {
+                        const remainingChars = Math.max(
+                            0,
+                            BOOTSTRAP_TOTAL_MAX_CHARS -
+                                totalBootstrapChars -
+                                sectionHeader.length,
+                        );
                         if (remainingChars > 500) {
-                            formattedSection = sectionHeader + truncateMemory(contentToAdd, filename, remainingChars);
+                            formattedSection =
+                                sectionHeader +
+                                truncateMemory(
+                                    contentToAdd,
+                                    filename,
+                                    remainingChars,
+                                );
                             bootstrapContext += formattedSection;
                             totalBootstrapChars += formattedSection.length;
                         } else {
@@ -440,7 +464,7 @@ router.post('/', async (req, res) => {
 
             const logsToLoad = [
                 { date: yesterday, label: "Yesterday's Log" },
-                { date: today, label: "Today's Log" }
+                { date: today, label: "Today's Log" },
             ];
 
             for (const log of logsToLoad) {
@@ -450,10 +474,24 @@ router.post('/', async (req, res) => {
                     const contentToAdd = truncateMemory(logContent, log.label);
                     let formattedSection = sectionHeader + contentToAdd;
 
-                    if (totalBootstrapChars + formattedSection.length > BOOTSTRAP_TOTAL_MAX_CHARS) {
-                        const remainingChars = Math.max(0, BOOTSTRAP_TOTAL_MAX_CHARS - totalBootstrapChars - sectionHeader.length);
+                    if (
+                        totalBootstrapChars + formattedSection.length >
+                        BOOTSTRAP_TOTAL_MAX_CHARS
+                    ) {
+                        const remainingChars = Math.max(
+                            0,
+                            BOOTSTRAP_TOTAL_MAX_CHARS -
+                                totalBootstrapChars -
+                                sectionHeader.length,
+                        );
                         if (remainingChars > 500) {
-                            formattedSection = sectionHeader + truncateMemory(logContent, log.label, remainingChars);
+                            formattedSection =
+                                sectionHeader +
+                                truncateMemory(
+                                    logContent,
+                                    log.label,
+                                    remainingChars,
+                                );
                             bootstrapContext += formattedSection;
                             totalBootstrapChars += formattedSection.length;
                         } else {
@@ -467,15 +505,11 @@ router.post('/', async (req, res) => {
                 }
             }
 
-            if (bootstrapContext.length > 25) { // Meaning we added more than just "# Workspace Files\n"
-                // Add explicit instructions for memory management
-                bootstrapContext += `\n\n## Memory Operation Manual\nIf the user says "remember this", you must write it to the corresponding memory file (like \`memory/YYYY-MM-DD.md\` or \`MEMORY.md\`) rather than just keeping it in your immediate context.`;
+            // Add explicit instructions for memory management
+            bootstrapContext += `\n\n## Memory Operation Manual\nIf the user says "remember this", you must write it to the corresponding memory file (like \`memory/YYYY-MM-DD.md\` or \`MEMORY.md\`) rather than just keeping it in your immediate context.`;
 
-                const baseSystemPrompt = session.systemPrompt;
-                session.agent.setSystemPrompt(
-                    baseSystemPrompt + bootstrapContext,
-                );
-            }
+            const baseSystemPrompt = session.systemPrompt;
+            session.agent.setSystemPrompt(baseSystemPrompt + bootstrapContext);
         }
 
         // Register this session so steer endpoint can reach it
@@ -655,11 +689,16 @@ router.post('/', async (req, res) => {
             if (usage) {
                 const modelContextWindow = model?.contextWindow || 128000;
                 const modelMaxTokens = model?.maxTokens || 4096;
-                
+
                 // Ensure we have enough room left to generate one full MaxTokens response plus tool usage overhead
                 const reserveTokensFloor = modelMaxTokens + 2000;
                 const softThresholdTokens = 4000;
-                const flushTrigger = Math.max(0, modelContextWindow - reserveTokensFloor - softThresholdTokens);
+                const flushTrigger = Math.max(
+                    0,
+                    modelContextWindow -
+                        reserveTokensFloor -
+                        softThresholdTokens,
+                );
 
                 // Use the official pi-coding-agent ContextUsage interface
                 const totalTokens = usage.tokens || 0;
