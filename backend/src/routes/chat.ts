@@ -421,11 +421,12 @@ router.post('/', async (req, res) => {
         // 6.5 Bootstrap OpenClaw Spec Context Files into System Prompt
         // This ensures that every request sent to this specific agent has its
         // persistent rules, persona, and memories injected into the context window.
+        let bootstrapContext = '';
+
         if (targetAgentId) {
             // Appended under the SDK's existing `# Project Context` section.
             // AGENTS.md is intentionally excluded — pi-agent SDK (v0.55+) already
             // injects it untruncated via its native `contextFiles` mechanism.
-            let bootstrapContext = '';
             let totalBootstrapChars = bootstrapContext.length;
 
             // Standard OpenClaw Bootstrap Files
@@ -550,12 +551,34 @@ router.post('/', async (req, res) => {
                 }
             }
 
-            // Add explicit instructions for memory management
-            bootstrapContext += `\n\n## Memory Operation Manual\nIf the user says "remember this", you must write it to the corresponding memory file (like \`memory/YYYY-MM-DD.md\` or \`MEMORY.md\`) rather than just keeping it in your immediate context.`;
-
-            const baseSystemPrompt = session.systemPrompt;
-            session.agent.setSystemPrompt(baseSystemPrompt + bootstrapContext);
+            // Add explicit instructions for memory management and behavioral guidelines
+            bootstrapContext += `\n\n## Proactive Memory Management\n`;
+            bootstrapContext += `Chat history is ephemeral and will be periodically truncated. You must PROACTIVELY preserve important context without waiting for the user to explicitly say "remember this":\n`;
+            bootstrapContext += `- Write enduring constraints, domain knowledge, or repeated formatting rules to \`MEMORY.md\`.\n`;
+            bootstrapContext += `- Write temporary scratchpad data, intermediate task states, or volatile day-to-day context to \`memory/YYYY-MM-DD.md\`.\n`;
+            bootstrapContext += `If a piece of information is critical for future conversational turns, NEVER just say "Got it." Immediately use your file writing tools to store it in the appropriate memory file.\n`;
+            bootstrapContext += `**Watch for Implicit Memory Triggers:** Users rarely say "save this". You must instantly recognize implicit constraints such as "always do X", "from now on", "I prefer", "the standard format is", or corrections like "actually, we don't do it that way". Any of these should trigger an automatic memory update.`;
+        } else {
+            // No active agent context (Root/Global Mode)
+            bootstrapContext += `\n\n## Root Mode Operations\n`;
+            bootstrapContext += `You are operating in Root Mode (no specialized agent is currently active). Your primary role is global workspace modification and Agent orchestration.\n`;
+            bootstrapContext += `- **Agent Creation**: If the user asks to create, scaffold, or bootstrap a new specialized agent or workflow, YOU MUST use the \`km-agent-creator\` skill instead of building it from scratch.`;
         }
+
+        // Apply Universal Guidelines regardless of active agent status
+        bootstrapContext += `\n\n## Universal Behavioral Guidelines`;
+        bootstrapContext += `\n1. **BLUF (Bottom Line Up Front)**: Deliver the final result, answer, or requested action FIRST. Explanations or rationale should only follow if necessary and must be strictly concise.`;
+
+        if (targetAgentId) {
+            bootstrapContext += `\n2. **Local Skills & Tools Execution**: Actively leverage your available skills. If you need to develop a NEW skill or tool, YOU MUST place it inside your local directory (e.g., \`agents/${targetAgentId}/skills\` or \`agents/${targetAgentId}/tools\`). Utilize the \`skill-creator\` skill to correctly scaffold any new skills.`;
+        } else {
+            bootstrapContext += `\n2. **Skills & Tools Execution**: Actively leverage your available skills. If you need to develop a NEW skill or tool, utilize the \`skill-creator\` skill to correctly scaffold it.`;
+        }
+
+        bootstrapContext += `\n3. **Python Execution Environment**: Before executing any Python code or installing packages, ALWAYS prioritize doing so within an isolated virtual environment (\`venv\`) to avoid polluting the system namespace.`;
+
+        const baseSystemPrompt = session.systemPrompt;
+        session.agent.setSystemPrompt(baseSystemPrompt + bootstrapContext);
 
         // Register this session so steer endpoint can reach it
         const activeId =
