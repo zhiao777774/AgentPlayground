@@ -122,6 +122,30 @@ router.post('/', async (req, res) => {
                 sessionManager.resetLeaf();
             } else {
                 sessionManager.branch(branchFromId);
+
+                // Auto-forward the leaf pointer past strictly linear system nodes.
+                // This prevents "invisible" backend events (like compaction or memory flush)
+                // from accidentally forcing the next user message into a sibling branch instead of a linear continuation.
+                let currentLeaf = sessionManager.getLeafEntry();
+                while (currentLeaf) {
+                    const children = sessionManager.getChildren(currentLeaf.id);
+                    if (children.length === 1) {
+                        const onlyChild = children[0];
+                        if (
+                            onlyChild.type === 'compaction' ||
+                            onlyChild.type === 'model_change' ||
+                            onlyChild.type === 'thinking_level_change' ||
+                            (onlyChild.type === 'custom' &&
+                                onlyChild.customType ===
+                                    'memory_flush_checkpoint')
+                        ) {
+                            sessionManager.branch(onlyChild.id);
+                            currentLeaf = onlyChild;
+                            continue;
+                        }
+                    }
+                    break;
+                }
             }
         }
 
@@ -381,12 +405,15 @@ router.post('/', async (req, res) => {
         // This ensures that every request sent to this specific agent has its
         // persistent rules, persona, and memories injected into the context window.
         if (targetAgentId) {
-            let bootstrapContext = '\n\n# Workspace Files\n';
+            // Appended under the SDK's existing `# Project Context` section.
+            // AGENTS.md is intentionally excluded — pi-agent SDK (v0.55+) already
+            // injects it untruncated via its native `contextFiles` mechanism.
+            let bootstrapContext = '';
             let totalBootstrapChars = bootstrapContext.length;
 
             // Standard OpenClaw Bootstrap Files
             const bootstrapFiles = [
-                'AGENTS.md',
+                // 'AGENTS.md', — handled by pi-agent SDK contextFiles
                 'SOUL.md',
                 'TOOLS.md',
                 'IDENTITY.md',
@@ -421,7 +448,8 @@ router.post('/', async (req, res) => {
                 }
 
                 if (contentToAdd) {
-                    const sectionHeader = `\n## ${filename}\n`;
+                    const sectionPath = path.join(activeAgentDir, filename);
+                    const sectionHeader = `\n\n---\n\n## ${sectionPath}\n\n`;
                     let formattedSection = sectionHeader + contentToAdd;
 
                     // Enforce global bootstrap character limit
@@ -532,6 +560,7 @@ router.post('/', async (req, res) => {
         });
 
         let isFlushingMemory = false;
+        let isManualProcessing = false;
 
         const tryResolveIfIdle = () => {
             // Give the async event handler time to start compaction/retry
@@ -540,7 +569,8 @@ router.post('/', async (req, res) => {
                     !session.isStreaming &&
                     !session.isCompacting &&
                     !session.isRetrying &&
-                    !isFlushingMemory
+                    !isFlushingMemory &&
+                    !isManualProcessing
                 ) {
                     resolveCompletion();
                 }
@@ -643,27 +673,42 @@ router.post('/', async (req, res) => {
                 }
 
                 if (isCustomContextOverflow) {
-                    // Popping the error message from the context window is already handled
-                    // natively inside `_runAutoCompaction` if we pass 'overflow'.
                     console.log(
-                        '[AUTO-COMPACT] Detected unhandled context limit error from custom model. Manually triggering native compaction.',
+                        '[AUTO-COMPACT] Detected unhandled context limit error from custom model. Manually triggering custom compaction.',
+                    );
+                    isManualProcessing = true;
+                    res.write(
+                        `data: ${JSON.stringify({ type: 'status', status: 'compacting', reason: 'context limit approached (Custom Fallback)' })}\n\n`,
                     );
 
-                    // We directly tap into the internal _runAutoCompaction method.
-                    // This elegantly preserves all native event emission (auto_compaction_start/end),
-                    // tracks internal loading states, and delegates the retry execution.
-                    (session as any)
-                        ._runAutoCompaction('overflow', true)
-                        .catch((e: any) => {
+                    (async () => {
+                        try {
+                            session.agent.replaceMessages(
+                                messages.slice(0, -1),
+                            );
+                            await session.compact();
+                            res.write(
+                                `data: ${JSON.stringify({ type: 'status', status: 'retrying', attempt: 1, maxAttempts: 1 })}\n\n`,
+                            );
+                            res.write(
+                                `data: ${JSON.stringify({ type: 'status', status: 'generating' })}\n\n`,
+                            );
+                            await session.agent.continue();
+                        } catch (e: any) {
                             console.error(
-                                '[AUTO-COMPACT] Native fallback compaction failed',
+                                '[AUTO-COMPACT] Custom logic failed',
                                 e,
                             );
                             res.write(
                                 `data: ${JSON.stringify({ type: 'error', message: e.message })}\n\n`,
                             );
-                            resolveCompletion();
-                        });
+                        } finally {
+                            setTimeout(() => {
+                                isManualProcessing = false;
+                                tryResolveIfIdle();
+                            }, 500);
+                        }
+                    })();
                 } else {
                     // agent_end fires when the agent loop finishes, but async compaction
                     // may start immediately after. Check after a delay.

@@ -84,20 +84,21 @@ router.get('/:id', async (req, res) => {
                 .filter(Boolean);
 
             // Parse ALL entries first to build a complete parent lookup map
-            const allEntries: any[] = [];
             const entryById = new Map<string, any>();
 
             for (const line of lines) {
                 try {
                     const entry = JSON.parse(line);
                     if (entry.id) {
-                        allEntries.push(entry);
                         entryById.set(entry.id, entry);
                     }
                 } catch (e) {
                     console.warn('Failed to parse session entry line', e);
                 }
             }
+            
+            // Deduplicate entries while preserving initial chronological order
+            const allEntries: any[] = Array.from(entryById.values());
 
             // Extract the latest agent_routing entry to restore state
             for (let i = allEntries.length - 1; i >= 0; i--) {
@@ -115,11 +116,43 @@ router.get('/:id', async (req, res) => {
             // (they are embedded into assistant messages' toolCalls array instead)
             const toolResultIds = new Set<string>();
             for (const entry of allEntries) {
-                if (
-                    entry.type === 'message' &&
-                    entry.message?.role === 'toolResult'
-                ) {
+                if (entry.type === 'message' && entry.message?.role === 'toolResult') {
                     toolResultIds.add(entry.id);
+                }
+            }
+
+            // Collect ids of internal background operations (like memory flush) to hide
+            // We use structural backtracking: traverse backwards from 'memory_flush_checkpoint'
+            // and hide all messages until we exit the background task bounds.
+            const hiddenMessageIds = new Set<string>();
+            const flushCheckpoints = allEntries.filter(
+                (e) => e.type === 'custom' && e.customType === 'memory_flush_checkpoint'
+            );
+
+            for (const cp of flushCheckpoints) {
+                let currentId = cp.parentId;
+                while (currentId) {
+                    const currentEntry = entryById.get(currentId);
+                    if (!currentEntry) break;
+
+                    // The boundary of the background task is marked by 'thinking_level_change'
+                    // or if we encounter a visible user interaction threshold.
+                    if (currentEntry.type === 'thinking_level_change') {
+                        break;
+                    }
+                    if (currentEntry.type === 'message' && currentEntry.message?.role === 'user') {
+                        break;
+                    }
+                    if (currentEntry.type === 'custom_message') {
+                        break;
+                    }
+
+                    // Hide ALL messages (whether assistant text or internal tool usage) generated during the flush
+                    if (currentEntry.type === 'message') {
+                        hiddenMessageIds.add(currentEntry.id);
+                    }
+
+                    currentId = currentEntry.parentId;
                 }
             }
 
@@ -139,7 +172,8 @@ router.get('/:id', async (req, res) => {
                     // Stop at visible message entries (not hidden toolResult entries)
                     if (
                         (parent.type === 'message' &&
-                            !toolResultIds.has(parent.id)) ||
+                            !toolResultIds.has(parent.id) &&
+                            !hiddenMessageIds.has(parent.id)) ||
                         parent.type === 'custom_message' ||
                         parent.type === 'compaction'
                     )
@@ -182,7 +216,8 @@ router.get('/:id', async (req, res) => {
             for (const entry of allEntries) {
                 if (entry.type === 'message' && entry.message) {
                     // Skip toolResult messages — they are embedded in assistant messages' toolCalls
-                    if (toolResultIds.has(entry.id)) continue;
+                    // Also skip hidden background messages like NO_REPLY
+                    if (toolResultIds.has(entry.id) || hiddenMessageIds.has(entry.id)) continue;
 
                     const msg = entry.message;
                     let textContent = '';
