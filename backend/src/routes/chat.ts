@@ -421,6 +421,14 @@ router.post('/', async (req, res) => {
         // 6.5 Bootstrap OpenClaw Spec Context Files into System Prompt
         // This ensures that every request sent to this specific agent has its
         // persistent rules, persona, and memories injected into the context window.
+        const activeId = sessionManager.getSessionId() ?? sessionId ?? Date.now().toString();
+        
+        // Ensure tmp sandbox exists for this session
+        const sessionTmpDir = path.join(process.cwd(), 'memory', 'tmp', activeId);
+        if (!fs.existsSync(sessionTmpDir)) {
+            fs.mkdirSync(sessionTmpDir, { recursive: true });
+        }
+        
         let bootstrapContext = '';
 
         if (targetAgentId) {
@@ -562,6 +570,7 @@ router.post('/', async (req, res) => {
             // No active agent context (Root/Global Mode)
             bootstrapContext += `\n\n## Root Mode Operations\n`;
             bootstrapContext += `You are operating in Root Mode (no specialized agent is currently active). Your primary role is global workspace modification and Agent orchestration.\n`;
+            bootstrapContext += `- **Isolated Sandbox**: Your ephemeral workspace is located at \`memory/tmp/${activeId}/\`. You may freely use this directory for any scratchpad reasoning, data processing scripts, testing, or file artifacts without cluttering the global workspace.\n`;
             bootstrapContext += `- **Agent Creation**: If the user asks to create, scaffold, or bootstrap a new specialized agent or workflow, YOU MUST use the \`km-agent-creator\` skill instead of building it from scratch.`;
         }
 
@@ -571,18 +580,18 @@ router.post('/', async (req, res) => {
 
         if (targetAgentId) {
             bootstrapContext += `\n2. **Local Skills & Tools Execution**: Actively leverage your available skills. If you need to develop a NEW skill or tool, YOU MUST place it inside your local directory (e.g., \`agents/${targetAgentId}/skills\` or \`agents/${targetAgentId}/tools\`). Utilize the \`skill-creator\` skill to correctly scaffold any new skills.`;
+            bootstrapContext += `\n3. **Complex Task Planning**: For extremely difficult or multi-step requests, actively leverage the \`planning-with-files\` skill to orchestrate your work. Save your planning artifacts firmly within \`agents/${targetAgentId}/plans/\`.`;
         } else {
-            bootstrapContext += `\n2. **Skills & Tools Execution**: Actively leverage your available skills. If you need to develop a NEW skill or tool, utilize the \`skill-creator\` skill to correctly scaffold it.`;
+            bootstrapContext += `\n2. **Scoped Skills & Tools Execution**: Actively leverage your available skills. If you need to develop a NEW skill or tool, to avoid polluting the global framework, YOU MUST place it inside \`memory/tmp/${activeId}/skills\` or \`memory/tmp/${activeId}/tools\`. Utilize the \`skill-creator\` skill to correctly scaffold it.`;
+            bootstrapContext += `\n3. **Complex Task Planning**: For extremely difficult or multi-step requests, actively leverage the \`planning-with-files\` skill to orchestrate your work. Save your planning artifacts in the volatile session directory: \`memory/tmp/${activeId}/plans/\`.`;
         }
 
-        bootstrapContext += `\n3. **Python Execution Environment**: Before executing any Python code or installing packages, ALWAYS prioritize doing so within an isolated virtual environment (\`venv\`) to avoid polluting the system namespace.`;
+        bootstrapContext += `\n4. **Python Execution Environment**: Before executing any Python code or installing packages, ALWAYS prioritize doing so within an isolated virtual environment (\`venv\`) to avoid polluting the system namespace.`;
 
         const baseSystemPrompt = session.systemPrompt;
         session.agent.setSystemPrompt(baseSystemPrompt + bootstrapContext);
 
         // Register this session so steer endpoint can reach it
-        const activeId =
-            sessionManager.getSessionId() ?? sessionId ?? Date.now().toString();
         activeSessions.set(activeId, session);
         // Let the client know the resolved session ID for steer calls
         res.write(

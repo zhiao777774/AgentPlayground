@@ -483,6 +483,12 @@ router.delete('/:id', async (req, res) => {
             fs.unlinkSync(sessionRecord.path);
         }
 
+        // Clean up tmp sandbox
+        const sessionTmpDir = path.join(process.cwd(), 'memory', 'tmp', id);
+        if (fs.existsSync(sessionTmpDir)) {
+            fs.rmSync(sessionTmpDir, { recursive: true, force: true });
+        }
+
         res.json({ message: 'Session deleted successfully' });
     } catch (error) {
         console.error('Error deleting session:', error);
