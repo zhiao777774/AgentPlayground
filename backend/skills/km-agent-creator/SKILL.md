@@ -1,264 +1,69 @@
 ---
 name: km-agent-creator
-description: Create a new Knowledge Management Agent (or reuse an existing one) under `agents/` to help users complete Knowledge Management workflows such as lessons learned capture, RFQ generation, summary report generation, knowledge Q&A, and deep research. Use this skill whenever the user asks to set up, scaffold, bootstrap, or standardize a KM agent/project; when they mention “knowledge management agent”, “KM agent”, “agent template”, “create an agent in agents/”, or want a reusable agent for organizational knowledge tasks. This skill is especially appropriate when the user wants repeatable workflows, structured artifacts (AGENTS/MEMORY/IDENTITY/USER), and iterative testing with example input/output pairs.
+description: Create a new Knowledge Management Agent (or reuse an existing one) under `agents/` to help users complete Knowledge Management workflows such as lessons learned capture, RFQ generation, summary report generation, knowledge Q&A, and deep research. Use this skill whenever the user asks to set up, scaffold, bootstrap, or standardize a KM agent/project; when they explicitly say phrases like "create an agent", "build a new assistant", "I need an agent to do X", "make a reusable workflow", "agent template", or want a reusable space for organizational knowledge tasks. Do NOT trigger this if the user is merely asking a general programming question about AI frameworks. Make sure to use this skill actively to establish a rigorous, repeatable workflow with structural memory integration.
 ---
+
 # KM Agent Creator
 
-This skill scaffolds a **Knowledge Management Agent** project in `agents/` using the templates in `assets/templates/`, then iteratively validates it with user-provided test cases (input/output pairs) before the agent is used for real tasks.
+This skill empowers you to scaffold and structure a **Knowledge Management Agent** project in `agents/`. 
+Your primary goal is not just to create a folder, but to **build a permanent, reliable brain** for the user's KM workflows (e.g., Lessons Learned, RFQ writing, Report generation).
 
-## Goals
+## 🧠 The Golden Rule: Ephemeral Chat vs. Permanent Brain 
 
-- Create (or reuse) a KM Agent workspace with consistent structure.
-- Capture the user’s task goal and preferences into the right files.
-- Validate via test cases, iterating until the user accepts results.
-- Enable a stable “main flow” for recurring KM tasks.
+As sessions grow long, chat history will inevitably be truncated or compressed, and you **will forget** important instructions if they only exist in conversation. 
 
-## Scope of KM tasks this agent may support
+**CRITICAL DIRECTIVE**: You must proactively act to push all objectives, preferences, and constraints into the core `.md` files immediately. **Do not just say "Got it" or "I'll remember that". Write it down!**
 
-- Lessons Learned (postmortems, retrospectives, RCA summaries)
-- RFQ / RFP generation (structured requirement documents)
-- Summary report generation (executive summaries, weekly/monthly reports)
-- Knowledge Q&A (grounded answers from internal materials)
-- Deep Research (multi-step research + synthesis)
+* **If the user says:** *"When generating the RFQ, always cross-reference my `Q4_Sales_Template.xlsx`."*
+  * ❌ *Wrong:* "Understood, I will use that template from now on."
+  * ✅ *Right:* Actively append this exact constraint into `MEMORY.md` immediately, so the knowledge persists seamlessly across future sessions.
 
-## Assumptions
-
-- Repository layout includes:
-  - `agents/` (existing agent projects live here)
-  - `assets/templates/` (template files to copy into new agent projects)
-- The agent project folder contains Markdown files like:
-  - `SOUL.md`, `AGENTS.md`, `MEMORY.md`, `IDENTITY.md`, `USER.md`
-  - (and possibly other `.md` template files)
+### Where Should Knowledge Be Stored?
+Because context bootstrapping injects these files into your context automatically on every request, keeping them updated is all you need to do to maintain perfect memory:
+- **`AGENTS.md`**: The grand target. What is the overarching objective? What are the required final deliverables?
+- **`MEMORY.md`**: Permanent domain facts, formatting rules, user-requested tool constraints (e.g., "Must format the output as a Markdown table" or "Always refer to X document").
+- **`memory/<YYYY-MM-DD>.md`**: Short-term memory files for the current date. Use these to store intermediate scratchpad data, volatile task states, or day-to-day context that needs to survive across sessions but shouldn't pollute the permanent knowledge base.
+- **`USER.md`**: Personal preferences, tone, language, and role-play instructions.
+- **`IDENTITY.md`** & **`SOUL.md`**: Stable agent behavioral guidelines and core personas.
 
 ---
 
-## 1) Pre-flight Setup
+## 🏗️ The 4-Stage Workflow
 
-Follow this checklist in order. Keep the user informed of what you’re doing and why, and ask concise questions whenever you need missing details.
+You must rigorously and systematically walk the user through these 4 stages. Do not rush to the end. Proceed sequentially to ensure the agent is configured correctly.
 
-### 1. Ask the user for the task objective
+### Stage 1: Intent Discovery (Guided Interview)
+You need to construct a robust mental model of the new agent before building anything. You must act as a structured interviewer to help the user clarify their thoughts.
+- **Interview Rules**:
+  - **One question at a time**: NEVER bombard the user with a giant wall of questions. Ask ONE primary question, wait for the answer, briefly summarize their answer to confirm understanding, and only then proceed to the next question.
+  - **Be Beginner-Friendly**: If the user is vague or unsure, provide 2 to 4 concrete options or examples to help them choose.
+- **The Interview Funnel** (Walk through these iteratively):
+  1. *Objective & Role*: What exactly does this agent need to accomplish? What persona should it adopt?
+  2. *Background & Inputs*: What are the typical inputs (PDFs, URLs, chat, DB)? Are there contexts or team jargons the agent must know?
+  3. *Expected Output & Success Criteria*: What is the exact format (table, markdown, prose)? What does a "perfect" output look like?
+  4. *Constraints*: What must the agent AVOID doing? Are there strict limitations?
+- **Propose a Name**: Once the interview is complete and the picture is clear, suggest a unique kebab-case `<project-name>` (e.g., `rfq-writer`, `lessons-learned`). Ask if they prefer to reuse a similar existing agent in `agents/` or create a new one. Wait for approval.
 
-Ask:
+### Stage 2: Scaffolding & Brain Implantation
+Once the agent name is approved and established:
+- **Scaffold**: Create the `agents/<project-name>/` directory and copy all contents from `assets/templates/` into it exactly.
+- **Implant the Brain**: Do not wait. Take the insights and constraints discussed in Stage 1 and immediately write them into `AGENTS.md`, `MEMORY.md`, and `USER.md`. This solidifies the mental model permanently.
 
-- What is the exact KM task you want this agent to do?
-- What are the expected outputs (format, sections, tone, length)?
-- What are the inputs usually like (docs, chat logs, spreadsheets, PDFs, links)?
-- Any constraints (language, confidentiality boundaries, citation requirements, timeline)?
+### Stage 3: Autonomous Testing & Human-in-the-Loop Verification
+An untested agent is a useless agent. You must perform realistic dry-runs.
+- **Request Examples**: Ask the user to provide 1 to 3 realistic Test Cases (input examples + a description of the expected output or success criteria).
+- **Execute & Self-Correct**: Act as the newly formulated agent. Autonomously execute the task and internally self-correct your work until you are confident the result closely matches the user's expected output or success criteria.
+  - *Halt on Ambiguity*: If you encounter any critical ambiguity or missing pieces during execution, **do not guess silently**. Stop immediately, report your current progress, and ask the user for their opinion before proceeding.
+- **Validate & Iterate**: Ask the user if the output matches their expectations. 
+  - *Human-in-the-Loop Optimization*: If the user corrects your output or adds a new constraint, **do not just apologize**. Immediately update `MEMORY.md` or `AGENTS.md` with the new rule, then state how you've updated the memory, and rerun the task or ask for confirmation. Repeat until the user provides explicit sign-off on the output quality.
 
-Write down a crisp “task objective” summary in your working notes; you’ll later put it into `AGENTS.md`.
-
----
-
-### 2. Check whether a similar agent already exists in `agents/`
-
-Steps:
-
-1. Inspect `agents/` directory for existing agent projects.
-2. Compare the user’s objective to existing agents’ purpose (by folder name and/or reading their `AGENTS.md`).
-
-Ask the user:
-
-- “I found an existing agent that looks similar: `<candidate-agent>`. Do you want to reuse it, or create a new one?”
-
-If **reuse existing**:
-
-- Skip folder creation and template copying.
-- Continue with steps that update files and run test cases, using the chosen existing agent folder.
-
-If **create new**:
-
-- Continue to the next step.
+### Stage 4: Launch & Context Handoff
+- **Launch**: Once the test outputs are thoroughly verified AND the user explicitly accepts the agent's behavior, your final act **MUST** be to call the `switch_agent_routing` tool with your `<project-name>`. 
+- This command permanently binds the ongoing chat interface to this new agent. 
+- Celebrate completion and yield control.
 
 ---
 
-### 3. Ask for a project name (must be unique)
-
-Ask the user for a short project name and validate:
-
-- Must not duplicate an existing folder name in `agents/`.
-- Must be convertible to **lowercase kebab-case**: `xxx-xxx`.
-  - Examples: `rfq-writer`, `lessons-learned`, `km-deep-research`
-
-If the user provides a name that conflicts or cannot be safely converted:
-
-- Propose 2–3 alternative kebab-case options and ask them to pick one.
-
----
-
-### 4. Create the agent folder under `agents/`
-
-Steps:
-
-1. Create `agents/<project-name>/` where `<project-name>` is all lowercase kebab-case.
-2. Confirm the folder exists.
-
----
-
-### 5. Copy templates into the new folder
-
-Steps:
-
-1. Copy everything from `assets/templates/` into `agents/<project-name>/`.
-2. Preserve subfolders and filenames.
-
----
-
-### 6. Read all `.md` files you just copied
-
-Steps:
-
-1. Enumerate all `.md` files inside `agents/<project-name>/`.
-2. Read each file to understand:
-   - What it is for
-   - What principles it enforces
-   - What information should be stored there
-3. Build a quick mental map of which file should be updated for which kind of user feedback.
-
----
-
-### 7. Write the task objective into `AGENTS.md`
-
-Steps:
-
-1. Open `AGENTS.md`.
-2. Insert or update a clear “Task Objective” section containing:
-   - The user’s KM objective (what the agent must achieve)
-   - Expected deliverables (artifacts and formats)
-   - Guardrails (what not to do)
-
-Keep it short, specific, and action-oriented.
-
----
-
-### 8. Collect basic user info and preferences; write into `USER.md`
-
-Ask only what matters for this agent:
-
-- Preferred language(s)
-- Preferred output style (bullets vs narrative, formal vs casual)
-- Domain context (industry/team context, audience)
-- Formatting preferences (headings, tables, citations)
-- Any recurring constraints (time, compliance, redaction rules)
-
-If the user provides these details:
-
-- Write them into `USER.md` in a structured way.
-
----
-
-### 9. Ask the user for multiple test cases (input + expected output)
-
-Request **a set of test cases**, not just one:
-
-- At least 3 cases if possible.
-- Each test case must include:
-  - **Input**: the raw content or a representative snippet
-  - **Expected Output**: what “good” looks like (structure + key points)
-
-If the user can’t provide full outputs, accept:
-
-- A rubric (must-include items, forbidden items, success criteria).
-
----
-
-### 10. Run the task freely on the test cases (iterative, user-in-the-loop)
-
-For each test case:
-
-1. Restate the **Input** and the **Expected Output** in your own words.
-2. Decompose the task into steps; execute the steps to produce an output.
-3. If anything is ambiguous:
-   - Ask the user immediately with a short, specific question.
-4. As you learn from clarifications and feedback, update the appropriate files:
-   - Update `MEMORY.md` with durable, reusable learnings and constraints.
-   - Update `IDENTITY.md` with stable agent identity/role principles (if applicable).
-   - Update `USER.md` with user-specific preferences.
-   - Update `AGENTS.md` if the objective or deliverable definition changes.
-
-Important:
-
-- Do not “silently assume” missing requirements during testing.
-- Always prefer a brief question over guessing when the ambiguity would change the output meaningfully.
-
----
-
-### 11. Summarize test results and iterate until accepted
-
-After all test cases:
-
-1. Provide a detailed test report:
-   - For each case: what you produced, what matched, what diverged, and why
-   - Known limitations / open questions
-   - Proposed updates to agent behavior
-2. Ask the user:
-   - “Do you have feedback or changes you want?”
-3. If feedback exists:
-   - Incorporate it
-   - Update the relevant `.md` files (`AGENTS.md`, `MEMORY.md`, `IDENTITY.md`, `USER.md`, etc.)
-   - Re-run the full test set (or at least the cases affected by the change)
-4. Repeat until the user says the agent is usable.
-
-**Final Context Switch**:
-- Once the user accepts the new agent, you MUST immediately call the `switch_agent_routing` tool with the new `<project-name>`.
-- This ensures the user's chat interface is permanently bound to this new agent for all future conversations.
-
-**Exit condition for Pre-flight Setup**:
-
-- The user explicitly confirms the outputs are acceptable on the provided test cases.
-- You have called `switch_agent_routing` to set the new context.
-
----
-
-## 2) Main Workflow
-
-Only use this section after Pre-flight Setup is completed and the user has accepted test-case performance.
-
-### 1. Read the agent’s core files carefully
-
-Before doing any real work, read:
-
-- `SOUL.md`
-- `AGENTS.md`
-- `MEMORY.md`
-- `IDENTITY.md`
-- `USER.md`
-
-Internalize:
-
-- Objective and deliverables
-- Agent behavior constraints
-- User preferences
-- Any “always/never” rules encoded in the templates
-
----
-
-### 2. Execute the user’s current task
-
-Steps:
-
-1. Ask for (or confirm) the current task input(s).
-2. Decompose the task into a clear plan.
-3. Execute the plan to produce outputs aligned with:
-   - `AGENTS.md` (objective + deliverables)
-   - `USER.md` (preferences)
-   - `SOUL.md` / `IDENTITY.md` (behavioral principles)
-   - `MEMORY.md` (learned constraints and recurring patterns)
-
----
-
-### 3. Incorporate feedback and continuously maintain the agent files
-
-Whenever the user provides feedback:
-
-1. Decide which file(s) should be updated based on template intent:
-   - **MEMORY.md**: durable learnings, constraints, reusable domain rules
-   - **AGENTS.md**: objective, deliverable definitions, workflow changes
-   - **IDENTITY.md**: stable role/voice/operating principles
-   - **USER.md**: user-specific preferences
-2. Update the file(s) with concise, non-duplicative entries.
-3. Continue the task with the updated guidance.
-
-Keep changes minimal but meaningful:
-
-- Avoid bloating files with one-off notes.
-- Prefer general rules that will help future runs.
+## Dealing With Ambiguity
+- **Never guess silently**: If a requirement is missing during testing that significantly alters the output, ask the user.
+- **Generalize the feedback**: When the user provides a correction on a specific test case, think about how to formulate it as a *general rule* in `MEMORY.md` rather than an overly specific rule for one file.
