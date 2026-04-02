@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Message } from '../types/index';
-import { Bot, User, Wrench, CheckCircle2, XCircle, Loader2, ChevronRight, Pencil, ChevronLeft, Check, Quote, BookOpen, Zap } from 'lucide-react';
+import { Bot, User, Wrench, CheckCircle2, XCircle, Loader2, ChevronRight, Pencil, ChevronLeft, Check, Quote, BookOpen, Zap, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -96,7 +96,7 @@ export function ChatWindow({
     };
 
     const handleSaveEdit = (message: Message, newContent: string) => {
-        if (!newContent.trim() || newContent === message.content) {
+        if (!newContent.trim()) {
             setEditingMessageId(null);
             return;
         }
@@ -282,15 +282,15 @@ export function ChatWindow({
 
                                         {/* Main Message Content */}
                                         {msg.content && (
-                                            <div className="relative group/content">
-                                                {editingMessageId === msg.id ? (
-                                                    <EditMessageContent
-                                                        initialContent={editContent}
-                                                        onSave={(newContent) => handleSaveEdit(msg, newContent)}
-                                                        onCancel={() => setEditingMessageId(null)}
-                                                    />
-                                                ) : (
-                                                    <>
+                                            <div className={`flex items-start gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} group/content min-w-0`}>
+                                                <div className="relative flex-1 min-w-0">
+                                                    {editingMessageId === msg.id ? (
+                                                        <EditMessageContent
+                                                            initialContent={editContent}
+                                                            onSave={(newContent) => handleSaveEdit(msg, newContent)}
+                                                            onCancel={() => setEditingMessageId(null)}
+                                                        />
+                                                    ) : (
                                                         <div
                                                             className={`px-4 py-3 shadow-sm overflow-visible wrap-break-word text-sm leading-relaxed prose prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:p-4 prose-pre:rounded-lg prose-pre:overflow-x-auto prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:py-1 prose-blockquote:italic prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400 marker:text-gray-500 max-w-none ${msg.role === 'user'
                                                                 ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm prose-invert prose-p:text-white prose-blockquote:border-blue-400 prose-blockquote:text-blue-100 prose-a:text-white'
@@ -385,43 +385,54 @@ export function ChatWindow({
                                                                 </div>
                                                             )}
                                                         </div>
+                                                    )}
 
-                                                        {/* Error State Banner */}
-                                                        {msg.stopReason === 'error' && msg.errorMessage && (
-                                                            <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex items-start gap-2 text-sm text-red-700 dark:text-red-400">
-                                                                <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                                                                <div className="flex-1 whitespace-pre-wrap font-mono relative pr-12 text-xs leading-relaxed">
-                                                                    <div className="font-semibold mb-1 text-sm font-sans">Message generation failed</div>
-                                                                    {msg.errorMessage}
-                                                                </div>
+                                                    {/* Error State Banner */}
+                                                    {msg.stopReason === 'error' && msg.errorMessage && (
+                                                        <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex items-start gap-2 text-sm text-red-700 dark:text-red-400">
+                                                            <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                                            <div className="flex-1 whitespace-pre-wrap font-mono relative pr-12 text-xs leading-relaxed">
+                                                                <div className="font-semibold mb-1 text-sm font-sans">Message generation failed</div>
+                                                                {msg.errorMessage}
                                                             </div>
-                                                        )}
+                                                        </div>
+                                                    )}
+                                                </div>
 
-                                                        {/* User: edit button (left side) */}
+                                                {/* Action Buttons Container */}
+                                                {editingMessageId !== msg.id && (
+                                                    <div className={`flex items-start gap-1 pt-2 shrink-0 opacity-0 group-hover/content:opacity-100 transition-opacity ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                                                         {msg.role === 'user' && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setEditingMessageId(msg.id);
-                                                                    setEditContent(msg.content);
-                                                                }}
-                                                                className="absolute -left-8 top-2 p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 opacity-0 group-hover/content:opacity-100 transition-opacity"
-                                                                title="Edit message"
-                                                            >
-                                                                <Pencil className="w-4 h-4" />
-                                                            </button>
+                                                            <>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setEditingMessageId(msg.id);
+                                                                        setEditContent(msg.content);
+                                                                    }}
+                                                                    className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md cursor-pointer transition-colors"
+                                                                    title="Edit message"
+                                                                >
+                                                                    <Pencil className="w-4 h-4" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => onResend(msg.content, msg.parentId ?? null)}
+                                                                    className="p-1.5 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md cursor-pointer transition-colors"
+                                                                    title="Resend message"
+                                                                >
+                                                                    <RefreshCw className="w-4 h-4" />
+                                                                </button>
+                                                            </>
                                                         )}
-
-                                                        {/* Assistant: quote button (right side) */}
                                                         {msg.role === 'assistant' && (
                                                             <button
                                                                 onClick={() => onQuote(msg)}
-                                                                className="absolute -right-8 top-2 p-1.5 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 opacity-0 group-hover/content:opacity-100 transition-opacity"
+                                                                className="p-1.5 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md cursor-pointer transition-colors"
                                                                 title="Quote this reply"
                                                             >
                                                                 <Quote className="w-4 h-4" />
                                                             </button>
                                                         )}
-                                                    </>
+                                                    </div>
                                                 )}
                                             </div>
                                         )}

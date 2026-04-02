@@ -127,7 +127,7 @@ export function Sidebar({ sessions, activeSessionId, activeTab, onChangeTab, onS
                                             <div className="absolute right-0 opacity-0 group-hover:opacity-100 flex items-center bg-gray-900 px-1 rounded transition-opacity">
                                                 <button
                                                     onClick={(e) => startEditing(e, session)}
-                                                    className="p-1 hover:text-blue-400 transition-colors z-10"
+                                                    className="p-1 hover:text-blue-400 hover:bg-gray-800 rounded cursor-pointer transition-colors z-10"
                                                     title="Rename"
                                                 >
                                                     <Pencil className="w-3 h-3" />
@@ -138,7 +138,7 @@ export function Sidebar({ sessions, activeSessionId, activeTab, onChangeTab, onS
                                                         e.preventDefault();
                                                         setDeleteConfirmId(session.id);
                                                     }}
-                                                    className="p-1 hover:text-red-400 transition-colors z-10"
+                                                    className="p-1 hover:text-red-400 hover:bg-gray-800 rounded cursor-pointer transition-colors z-10"
                                                     title="Delete"
                                                 >
                                                     <Trash2 className="w-3 h-3" />
