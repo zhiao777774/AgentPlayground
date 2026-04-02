@@ -8,7 +8,7 @@
                 {
                     "id": "qwen3:8b",
                     "name": "Qwen3 8B (Ollama)",
-                    "contextWindow": 8192,
+                    "contextWindow": 32768,
                     "maxTokens": 4096,
                     "cost": {
                         "input": 0.0,
