@@ -165,6 +165,23 @@ router.post('/', async (req, res) => {
             throw new Error('No models available');
         }
 
+        // Add model_change event directly if it's explicitly differing from current session model state
+        if (model && sessionRecord) {
+            const currentContext = sessionManager.buildSessionContext();
+            const currentModel = currentContext.model;
+            // The frontend dropdown only provides modelId; if it differs from the context, we must log a model_change
+            if (
+                !currentModel ||
+                currentModel.modelId !== model.id ||
+                currentModel.provider !== model.provider
+            ) {
+                console.log(
+                    `[DEBUG chat.ts] Explicitly appending model_change from ${currentModel?.modelId || 'none'} to ${model.id}`,
+                );
+                sessionManager.appendModelChange(model.provider, model.id);
+            }
+        }
+
         // 3. Extract persistent agent routing from history
         let targetAgentId = null;
         let isOneOff = false;
