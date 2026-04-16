@@ -12,6 +12,7 @@ export interface Session {
     firstMessage?: string;
     messages?: Message[];
     activeAgentId?: string | null;
+    lastModelId?: string;
     agentRoutingEntries?: Array<{
         id: string;
         parentId: string | null;

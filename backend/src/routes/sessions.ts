@@ -70,6 +70,7 @@ router.get('/:id', async (req, res) => {
         const filePath = session.path;
         const messages: any[] = [];
         let activeAgentId: string | null = null;
+        let modelId: string = 'default';
         const agentRoutingEntries: Array<{
             id: string;
             parentId: string | null;
@@ -369,7 +370,6 @@ router.get('/:id', async (req, res) => {
             }
 
             // Extract context usage metrics from the session history
-            let modelId = 'default';
             for (let i = allEntries.length - 1; i >= 0; i--) {
                 const entry = allEntries[i];
                 if (entry.type === 'model_change') {
@@ -419,6 +419,7 @@ router.get('/:id', async (req, res) => {
             ...session,
             messages,
             activeAgentId,
+            lastModelId: modelId !== 'default' ? modelId : undefined,
             agentRoutingEntries,
             contextUsage,
         });

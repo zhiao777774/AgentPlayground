@@ -421,14 +421,20 @@ router.post('/', async (req, res) => {
         // 6.5 Bootstrap OpenClaw Spec Context Files into System Prompt
         // This ensures that every request sent to this specific agent has its
         // persistent rules, persona, and memories injected into the context window.
-        const activeId = sessionManager.getSessionId() ?? sessionId ?? Date.now().toString();
-        
+        const activeId =
+            sessionManager.getSessionId() ?? sessionId ?? Date.now().toString();
+
         // Ensure tmp sandbox exists for this session
-        const sessionTmpDir = path.join(process.cwd(), 'memory', 'tmp', activeId);
+        const sessionTmpDir = path.join(
+            process.cwd(),
+            'memory',
+            'tmp',
+            activeId,
+        );
         if (!fs.existsSync(sessionTmpDir)) {
             fs.mkdirSync(sessionTmpDir, { recursive: true });
         }
-        
+
         let bootstrapContext = '';
 
         if (targetAgentId) {
@@ -589,7 +595,16 @@ router.post('/', async (req, res) => {
         bootstrapContext += `\n4. **Python Execution Environment**: Before executing any Python code or installing packages, ALWAYS prioritize doing so within an isolated virtual environment (\`venv\`) to avoid polluting the system namespace.`;
 
         const baseSystemPrompt = session.systemPrompt;
-        session.agent.setSystemPrompt(baseSystemPrompt + bootstrapContext);
+
+        // Detoxify the default pi-agent "Coding Assistant" identity anchor
+        const tailoredBasePrompt = baseSystemPrompt.replace(
+            'You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.',
+            'You are an intelligent expert system orchestrated by AgentPlayground. Your strictly prioritized objective is to adopt the active persona and closely follow the user context. Wait for instructions and use tools strategically.',
+        );
+
+        session.agent.setSystemPrompt(tailoredBasePrompt + bootstrapContext);
+        console.log('system prompt:\n', tailoredBasePrompt + bootstrapContext);
+        console.log('==========');
 
         // Register this session so steer endpoint can reach it
         activeSessions.set(activeId, session);

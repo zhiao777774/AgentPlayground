@@ -182,6 +182,7 @@ function App() {
       setSessionMessages(msgs);
       setActiveLeafId(msgs.length > 0 ? msgs[msgs.length - 1].id : null);
       setContextUsage(session.contextUsage || null);
+      if (session.lastModelId) setSelectedModelId(session.lastModelId);
 
       // Synchronize restored activeAgentId into the sessions list state
       if (session.activeAgentId !== undefined) {
@@ -208,6 +209,7 @@ function App() {
       setSessionMessages(msgs);
       setActiveLeafId(msgs.length > 0 ? msgs[msgs.length - 1].id : null);
       setContextUsage(session.contextUsage || null);
+      if (session.lastModelId) setSelectedModelId(session.lastModelId);
 
       // Synchronize restored activeAgentId into the sessions list state
       if (session.activeAgentId !== undefined) {
