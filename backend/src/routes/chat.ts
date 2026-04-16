@@ -644,9 +644,6 @@ Core Directives:
 
         session.agent.setSystemPrompt(tailoredBasePrompt + bootstrapContext);
 
-        console.log(`System prompt: ${tailoredBasePrompt + bootstrapContext}`);
-        console.log('==========');
-
         // Register this session so steer endpoint can reach it
         activeSessions.set(activeId, session);
         // Let the client know the resolved session ID for steer calls
