@@ -62,7 +62,7 @@ tmp/
 rag_uploads/
 .data/
 milvus-data/
-backend/agents/dummy-*/
+backend/agents/
 
 # Specific ignores based on project structure
 backend/dist/
