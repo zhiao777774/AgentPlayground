@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import type { Agent } from '../types';
-import { Bot, Plus, Trash2, Calendar, FileText, UploadCloud, Loader2, Download } from 'lucide-react';
+import { Bot, Plus, Trash2, Calendar, FileText, UploadCloud, Loader2, Download, Users } from 'lucide-react';
 import { api } from '../services/api';
+import { ShareModal } from './ShareModal';
 
 interface Props {
     agents: Agent[];
@@ -9,13 +10,19 @@ interface Props {
     onNewAgent: () => void;
     onDeleteAgent: (id: string) => void;
     onRefreshAgents: () => void;
+    onShareAgent: (id: string, targetUserId: string, targetUserName: string) => Promise<void>;
+    onUnshareAgent: (id: string, targetUserId: string) => Promise<void>;
     isLoading?: boolean;
 }
 
-export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgent, onRefreshAgents, isLoading }: Props) {
+export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgent, onRefreshAgents, onShareAgent, onUnshareAgent, isLoading }: Props) {
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+    const [shareModalId, setShareModalId] = useState<string | null>(null);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const ownedAgents = useMemo(() => agents.filter(a => !a.isShared), [agents]);
+    const sharedAgents = useMemo(() => agents.filter(a => a.isShared), [agents]);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -50,11 +57,99 @@ export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgen
     }
 
     const agentToDelete = deleteConfirmId ? agents.find(a => a.id === deleteConfirmId) : null;
+    const agentToShare = shareModalId ? agents.find(a => a.id === shareModalId) : null;
+
+    const renderAgentCard = (agent: Agent) => (
+        <div
+            key={agent.id}
+            onClick={() => onSelectAgent(agent.id)}
+            className="group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 rounded-xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col relative"
+        >
+            <div className="flex justify-between items-start mb-4">
+                <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center text-indigo-600 dark:text-indigo-400 relative">
+                    <Bot className="w-5 h-5" />
+                    {agent.isShared && (
+                        <div className="absolute -top-1 -right-1 bg-emerald-500 rounded-full p-0.5 border-2 border-white dark:border-gray-800">
+                            <Users className="w-2.5 h-2.5 text-white" />
+                        </div>
+                    )}
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                        onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                                await api.agents.export(agent.id);
+                            } catch {
+                                alert('Failed to export agent');
+                            }
+                        }}
+                        className="p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-100 hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-blue-400"
+                        title="Export Agent"
+                    >
+                        <Download className="w-4 h-4" />
+                    </button>
+
+                    {/* Sharing Action - Only for Owners */}
+                    {!agent.isShared && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShareModalId(agent.id);
+                            }}
+                            className="p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-100 hover:text-green-500 dark:hover:bg-gray-700 dark:hover:text-green-400"
+                            title="Share Agent"
+                        >
+                            <Users className="w-4 h-4" />
+                        </button>
+                    )}
+
+                    {/* Delete Action - Only for Owners */}
+                    {!agent.isShared && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteConfirmId(agent.id);
+                            }}
+                            className="p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-100 hover:text-red-500 dark:hover:bg-gray-700 dark:hover:text-red-400"
+                            title="Delete Agent"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 truncate" title={agent.name}>
+                {agent.name}
+            </h3>
+
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-6 font-medium">
+                <span className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">{agent.type}</span>
+                {agent.isShared && (
+                    <span className="shrink-0 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold rounded-full max-w-[180px] truncate" title={agent.ownerName}>
+                        {agent.ownerName || 'Shared'}
+                    </span>
+                )}
+            </div>
+
+            <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700 flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <Calendar className="w-3.5 h-3.5" />
+                    Created: {new Date(agent.createdAt).toLocaleDateString()}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <FileText className="w-3.5 h-3.5" />
+                    Updated: {new Date(agent.updatedAt).toLocaleDateString()}
+                </div>
+            </div>
+        </div>
+    );
 
     return (
         <div className="flex-1 flex flex-col h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
             {/* Header */}
-            <header className="h-16 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex flex-row items-center justify-between px-6 shrink-0">
+            <header className="h-16 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex flex-row items-center justify-between px-6 shrink-0 z-10">
                 <h1 className="text-lg font-bold tracking-tight bg-linear-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent flex items-center gap-2">
                     <Bot className="w-5 h-5 text-blue-500" />
                     Agent Management
@@ -86,7 +181,7 @@ export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgen
             </header>
 
             {/* Content Area */}
-            <main className="flex-1 overflow-y-auto p-6 md:p-8">
+            <main className="flex-1 overflow-y-auto p-6 md:p-8 space-y-12">
                 {agents.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center max-w-md mx-auto">
                         <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-6">
@@ -105,66 +200,36 @@ export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgen
                         </button>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {agents.map((agent) => (
-                            <div
-                                key={agent.id}
-                                onClick={() => onSelectAgent(agent.id)}
-                                className="group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 rounded-xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col relative"
-                            >
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                                        <Bot className="w-5 h-5" />
+                    <>
+                        {/* My Agents Section */}
+                        <div className="space-y-6">
+                            <div className="flex items-center gap-3">
+                                <h2 className="text-xs font-bold text-gray-500 uppercase tracking-[0.2em]">My Agents</h2>
+                                <div className="h-px flex-1 bg-gray-200 dark:bg-gray-800"></div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                {ownedAgents.map(renderAgentCard)}
+                                {ownedAgents.length === 0 && (
+                                    <div className="col-span-full py-8 text-center text-gray-400 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl">
+                                        No custom agents yet.
                                     </div>
-                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button
-                                            onClick={async (e) => {
-                                                e.stopPropagation();
-                                                try {
-                                                    await api.agents.export(agent.id);
-                                                } catch {
-                                                    alert('Failed to export agent');
-                                                }
-                                            }}
-                                            className="p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-100 hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-blue-400"
-                                            title="Export Agent"
-                                        >
-                                            <Download className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setDeleteConfirmId(agent.id);
-                                            }}
-                                            className="p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-100 hover:text-red-500 dark:hover:bg-gray-700 dark:hover:text-red-400"
-                                            title="Delete Agent"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Shared With Me Section */}
+                        {sharedAgents.length > 0 && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-xs font-bold text-gray-500 uppercase tracking-[0.2em]">Shared With Me</h2>
+                                    <div className="h-px flex-1 bg-gray-200 dark:bg-gray-800"></div>
                                 </div>
-
-                                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 truncate" title={agent.name}>
-                                    {agent.name}
-                                </h3>
-
-                                <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-6 font-medium">
-                                    <span className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">{agent.type}</span>
-                                </div>
-
-                                <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700 flex flex-col gap-2">
-                                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                                        <Calendar className="w-3.5 h-3.5" />
-                                        Created: {new Date(agent.createdAt).toLocaleDateString()}
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                                        <FileText className="w-3.5 h-3.5" />
-                                        Updated: {new Date(agent.updatedAt).toLocaleDateString()}
-                                    </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                    {sharedAgents.map(renderAgentCard)}
                                 </div>
                             </div>
-                        ))}
-                    </div>
+                        )}
+                    </>
                 )}
             </main>
 
@@ -195,6 +260,21 @@ export function AgentDashboard({ agents, onSelectAgent, onNewAgent, onDeleteAgen
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Share Agent Modal */}
+            {shareModalId && agentToShare && (
+                <ShareModal 
+                    title={`Share Agent: ${agentToShare.name}`}
+                    sharedWith={agentToShare.sharedWith || []}
+                    onClose={() => setShareModalId(null)}
+                    onShare={async (userId, name) => {
+                        await onShareAgent(agentToShare.id, userId, name);
+                    }}
+                    onUnshare={async (userId) => {
+                        await onUnshareAgent(agentToShare.id, userId);
+                    }}
+                />
             )}
         </div>
     );

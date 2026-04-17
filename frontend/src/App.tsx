@@ -160,6 +160,46 @@ function App() {
     alert("This will invoke the km-agent-creator skill to scaffold a new agent.");
   };
 
+  const handleShareAgent = async (id: string, targetUserId: string, targetUserName: string) => {
+    try {
+      const sharedWith = await api.agents.share(id, targetUserId, targetUserName);
+      setAgents(prev => prev.map(a => a.id === id ? { ...a, sharedWith } : a));
+    } catch (err) {
+      console.error('Failed to share agent', err);
+      setError('Failed to share agent.');
+    }
+  };
+
+  const handleUnshareAgent = async (id: string, targetUserId: string) => {
+    try {
+      const sharedWith = await api.agents.unshare(id, targetUserId);
+      setAgents(prev => prev.map(a => a.id === id ? { ...a, sharedWith } : a));
+    } catch (err) {
+      console.error('Failed to unshare agent', err);
+      setError('Failed to unshare agent.');
+    }
+  };
+
+  const handleShareDocument = async (id: string, targetUserId: string, targetUserName: string) => {
+    try {
+      const sharedWith = await api.documents.share(id, targetUserId, targetUserName);
+      setDocuments(prev => prev.map(d => d.id === id ? { ...d, sharedWith } : d));
+    } catch (err) {
+      console.error('Failed to share document', err);
+      setError('Failed to share document.');
+    }
+  };
+
+  const handleUnshareDocument = async (id: string, targetUserId: string) => {
+    try {
+      const sharedWith = await api.documents.unshare(id, targetUserId);
+      setDocuments(prev => prev.map(d => d.id === id ? { ...d, sharedWith } : d));
+    } catch (err) {
+      console.error('Failed to unshare document', err);
+      setError('Failed to unshare document.');
+    }
+  };
+
   const fetchModels = async () => {
     try {
       const data = await api.models.list();
@@ -665,6 +705,8 @@ function App() {
             onNewAgent={handleNewAgent}
             onDeleteAgent={handleDeleteAgent}
             onRefreshAgents={fetchAgents}
+            onShareAgent={handleShareAgent}
+            onUnshareAgent={handleUnshareAgent}
             isLoading={isLoadingAgents}
           />
         )
@@ -676,6 +718,8 @@ function App() {
           documents={documents}
           isLoading={isLoadingDocs}
           onRefresh={fetchDocuments}
+          onShareDocument={handleShareDocument}
+          onUnshareDocument={handleUnshareDocument}
         />
       )}
 

@@ -1,18 +1,22 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { UploadCloud, FileText, Trash2, CheckCircle2, AlertCircle, Loader2, Database, ArrowLeft, ChevronLeft, ChevronRight, Hash, Calendar, Layers } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { UploadCloud, FileText, Trash2, CheckCircle2, AlertCircle, Loader2, Database, ArrowLeft, ChevronLeft, ChevronRight, Hash, Calendar, Layers, Users } from 'lucide-react';
 import type { DocumentMeta, DocumentChunk } from '../types';
 import { api } from '../services/api';
+import { ShareModal } from './ShareModal';
 
 interface Props {
     documents: DocumentMeta[];
     onRefresh: () => void;
+    onShareDocument: (id: string, targetUserId: string, targetUserName: string) => Promise<void>;
+    onUnshareDocument: (id: string, targetUserId: string) => Promise<void>;
     isLoading?: boolean;
 }
 
-export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
+export function KnowledgeBase({ documents, onRefresh, onShareDocument, onUnshareDocument, isLoading }: Props) {
     const [isDragging, setIsDragging] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+    const [shareModalId, setShareModalId] = useState<string | null>(null);
     const [duplicateFile, setDuplicateFile] = useState<File | null>(null);
     const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
     const [docDetail, setDocDetail] = useState<DocumentMeta | null>(null);
@@ -23,6 +27,9 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
     const [isLoadingChunks, setIsLoadingChunks] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const CHUNKS_PER_PAGE = 20;
+
+    const ownedDocuments = useMemo(() => documents.filter(d => !d.isShared), [documents]);
+    const sharedDocuments = useMemo(() => documents.filter(d => d.isShared), [documents]);
 
     // Auto-refresh periodically if there are pending/processing documents
     useEffect(() => {
@@ -161,6 +168,7 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
     };
 
     const docToDelete = deleteConfirmId ? documents.find(d => d.id === deleteConfirmId) : null;
+    const docToShare = shareModalId ? documents.find(d => d.id === shareModalId) : null;
     const totalPages = Math.ceil(chunksTotal / CHUNKS_PER_PAGE);
 
     if (isLoading && documents.length === 0) {
@@ -170,6 +178,69 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
             </div>
         );
     }
+
+    const renderDocumentItem = (doc: DocumentMeta) => (
+        <li
+            key={doc.id}
+            className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors flex items-center justify-between group cursor-pointer"
+            onClick={() => doc.status !== 'pending' && setSelectedDocId(doc.id)}
+        >
+            <div className="flex items-center gap-4 min-w-0">
+                <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-900 flex items-center justify-center shrink-0">
+                    {getStatusIcon(doc.status)}
+                </div>
+                <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                        {doc.name}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${doc.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                            doc.status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                            }`}>
+                            {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                            {new Date(doc.createdAt).toLocaleString()}
+                        </span>
+                    </div>
+                    {doc.status === 'failed' && doc.error && (
+                        <p className="text-xs text-red-500 mt-1 truncate max-w-md">
+                            Error: {doc.error}
+                        </p>
+                    )}
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 ml-4">
+                {doc.isShared && (
+                    <span className="shrink-0 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[10px] font-bold rounded-full max-w-[220px] truncate" title={doc.ownerName}>
+                        {doc.ownerName || 'Shared'}
+                    </span>
+                )}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    {!doc.isShared && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setShareModalId(doc.id); }}
+                            className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"
+                            title="Share document"
+                        >
+                            <Users className="w-4 h-4" />
+                        </button>
+                    )}
+                    {!doc.isShared && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(doc.id); }}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+                            title="Delete document"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
+            </div>
+        </li>
+    );
 
     // ─── Document Detail View ───
     if (selectedDocId && docDetail) {
@@ -295,14 +366,14 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
     return (
         <div className="flex-1 flex flex-col h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
             {/* Header */}
-            <header className="h-16 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex flex-row items-center justify-between px-6 shrink-0">
+            <header className="h-16 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex flex-row items-center justify-between px-6 shrink-0 z-10">
                 <h1 className="text-lg font-bold tracking-tight bg-linear-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent flex items-center gap-2">
                     <Database className="w-5 h-5 text-blue-500" />
                     Knowledge Base
                 </h1>
             </header>
 
-            <main className="flex-1 overflow-y-auto p-6 md:p-8">
+            <main className="flex-1 overflow-y-auto p-6 md:p-8 space-y-12">
                 <div className="max-w-4xl mx-auto space-y-8">
 
                     {/* Upload Zone */}
@@ -338,64 +409,42 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
                         )}
                     </div>
 
-                    {/* Document List */}
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
-                        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
-                            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Uploaded Documents</h2>
+                    {/* Document List Sections */}
+                    <div className="space-y-12">
+                        {/* My Documents */}
+                        <div className="space-y-6">
+                            <div className="flex items-center gap-3">
+                                <h2 className="text-xs font-bold text-gray-500 uppercase tracking-[0.2em]">My Documents</h2>
+                                <div className="h-px flex-1 bg-gray-200 dark:bg-gray-800"></div>
+                            </div>
+                            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+                                {ownedDocuments.length === 0 ? (
+                                    <div className="p-8 text-center text-gray-500 dark:text-gray-400 italic">
+                                        No documents uploaded yet.
+                                    </div>
+                                ) : (
+                                    <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                                        {ownedDocuments.map(renderDocumentItem)}
+                                    </ul>
+                                )}
+                            </div>
                         </div>
 
-                        {documents.length === 0 ? (
-                            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-                                No documents in the knowledge base yet.
+                        {/* Shared Documents */}
+                        {sharedDocuments.length > 0 && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-xs font-bold text-gray-500 uppercase tracking-[0.2em]">Shared With Me</h2>
+                                    <div className="h-px flex-1 bg-gray-200 dark:bg-gray-800"></div>
+                                </div>
+                                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+                                    <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                                        {sharedDocuments.map(renderDocumentItem)}
+                                    </ul>
+                                </div>
                             </div>
-                        ) : (
-                            <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                                {documents.map((doc) => (
-                                    <li
-                                        key={doc.id}
-                                        className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors flex items-center justify-between group cursor-pointer"
-                                        onClick={() => doc.status !== 'pending' && setSelectedDocId(doc.id)}
-                                    >
-                                        <div className="flex items-center gap-4 min-w-0">
-                                            <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-900 flex items-center justify-center shrink-0">
-                                                {getStatusIcon(doc.status)}
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                                    {doc.name}
-                                                </p>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${doc.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                                        doc.status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                                                            'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                                                        }`}>
-                                                        {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                                                    </span>
-                                                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                                                        {new Date(doc.createdAt).toLocaleString()}
-                                                    </span>
-                                                </div>
-                                                {doc.status === 'failed' && doc.error && (
-                                                    <p className="text-xs text-red-500 mt-1 truncate max-w-md">
-                                                        Error: {doc.error}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(doc.id); }}
-                                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg opacity-0 group-hover:opacity-100 transition-all shrink-0 ml-4"
-                                            title="Delete document"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
                         )}
                     </div>
-
                 </div>
             </main>
 
@@ -424,6 +473,21 @@ export function KnowledgeBase({ documents, onRefresh, isLoading }: Props) {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Share Modal */}
+            {shareModalId && docToShare && (
+                <ShareModal 
+                    title={`Share Knowledge: ${docToShare.name}`}
+                    sharedWith={docToShare.sharedWith || []}
+                    onClose={() => setShareModalId(null)}
+                    onShare={async (userId, name) => {
+                        await onShareDocument(docToShare.id, userId, name);
+                    }}
+                    onUnshare={async (userId) => {
+                        await onUnshareDocument(docToShare.id, userId);
+                    }}
+                />
             )}
 
             {/* Duplicate File Confirmation Modal */}

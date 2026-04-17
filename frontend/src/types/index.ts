@@ -27,6 +27,7 @@ export interface Session {
     }>;
     contextUsage?: { tokens: number; contextWindow: number; percent: number };
     ownerId?: string;
+    ownerName?: string;
     sharedWith?: Array<{ userId: string, name: string }>;
     isShared?: boolean;
 }
@@ -65,6 +66,10 @@ export interface Agent {
     type: string;
     createdAt: string;
     updatedAt: string;
+    ownerId: string;
+    ownerName?: string;
+    sharedWith?: Array<{ userId: string, name: string }>;
+    isShared?: boolean;
 }
 
 export interface AgentDetail {
@@ -85,6 +90,10 @@ export interface DocumentMeta {
     status: 'pending' | 'processing' | 'completed' | 'failed';
     createdAt: string;
     path: string;
+    ownerId: string;
+    ownerName?: string;
+    sharedWith?: Array<{ userId: string, name: string }>;
+    isShared?: boolean;
     error?: string;
     chunkCount?: number | null;
 }

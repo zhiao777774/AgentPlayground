@@ -172,6 +172,24 @@ export const api = {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
         },
+        share: async (id: string, targetUserId: string, targetUserName: string): Promise<any> => {
+            const res = await fetchWithAuth(`${API_BASE}/agents/${id}/share`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetUserId, targetUserName })
+            });
+            if (!res.ok) throw new Error('Failed to share agent');
+            return res.json();
+        },
+        unshare: async (id: string, targetUserId: string): Promise<any> => {
+            const res = await fetchWithAuth(`${API_BASE}/agents/${id}/unshare`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetUserId })
+            });
+            if (!res.ok) throw new Error('Failed to unshare agent');
+            return res.json();
+        },
     },
     documents: {
         list: async (): Promise<DocumentMeta[]> => {
@@ -223,6 +241,24 @@ export const api = {
                 method: 'DELETE',
             });
             if (!res.ok) throw new Error('Failed to delete document');
+        },
+        share: async (id: string, targetUserId: string, targetUserName: string): Promise<any> => {
+            const res = await fetchWithAuth(`${API_BASE}/documents/${id}/share`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetUserId, targetUserName })
+            });
+            if (!res.ok) throw new Error('Failed to share document');
+            return res.json();
+        },
+        unshare: async (id: string, targetUserId: string): Promise<any> => {
+            const res = await fetchWithAuth(`${API_BASE}/documents/${id}/unshare`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetUserId })
+            });
+            if (!res.ok) throw new Error('Failed to unshare document');
+            return res.json();
         },
     },
 };
