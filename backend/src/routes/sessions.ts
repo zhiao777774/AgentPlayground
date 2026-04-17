@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { SessionManager } from '@mariozechner/pi-coding-agent';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { modelRegistry } from '../server.js';
 import { SessionMeta } from '../models/ResourceMeta.js';
@@ -41,6 +42,7 @@ router.post('/', async (req, res) => {
         await SessionMeta.create({
             id: fullId,
             ownerId: req.user!.id,
+            ownerName: req.user!.displayName,
             name: 'New Session'
         });
 
@@ -433,6 +435,7 @@ router.get('/:id', async (req, res) => {
             agentRoutingEntries,
             contextUsage,
             ownerId: authMeta.ownerId,
+            ownerName: authMeta.ownerName,
             sharedWith: authMeta.sharedWith,
             isShared: authMeta.ownerId !== userId
         });
@@ -536,12 +539,13 @@ router.get('/', async (req, res) => {
         const filteredSessions = sessions
             .filter(s => metaMap.has(s.id))
             .map(s => {
-                const meta = metaMap.get(s.id)!;
+                const meta = metaMap.get(s.id);
                 return {
                     ...s,
-                    ownerId: meta.ownerId,
-                    sharedWith: meta.sharedWith,
-                    isShared: meta.ownerId !== userId
+                    ownerId: meta?.ownerId || 'unknown',
+                    ownerName: meta?.ownerName || 'Unknown',
+                    sharedWith: meta?.sharedWith || [],
+                    isShared: meta ? meta.ownerId !== userId : false
                 };
             });
 

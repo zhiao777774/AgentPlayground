@@ -1,8 +1,7 @@
 import { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
 import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
+import { DocumentMeta } from '../models/ResourceMeta.js';
 
 export const searchKnowledgeBaseSchema = Type.Object({
     query: Type.String({
@@ -31,21 +30,70 @@ export const search_knowledge_base: ToolDefinition<any, any> = {
     parameters: searchKnowledgeBaseSchema,
     execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
         const query = params.query;
-        const documentIds = params.document_ids;
+        let requestedDocumentIds = params.document_ids;
         const limit = params.limit || 10;
 
         try {
+            const userId = _ctx?.userId;
+            if (!userId) {
+                throw new Error('User ID not found in tool context');
+            }
+
+            // 1. Fetch ALL documents accessible to this user
+            const authorizedDocs = await DocumentMeta.find({
+                $or: [
+                    { ownerId: userId },
+                    { 'sharedWith.userId': userId }
+                ]
+            }).lean();
+
+            const authorizedIds = authorizedDocs.map(d => d.id);
+            const docMap = authorizedDocs.reduce((acc: any, doc: any) => {
+                acc[doc.id] = doc;
+                return acc;
+            }, {});
+
+            if (authorizedIds.length === 0) {
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'You do not have access to any documents in the Knowledge Base.',
+                        },
+                    ],
+                    details: {},
+                };
+            }
+
+            // 2. Security Filter: Intersect requested IDs with authorized IDs
+            let targetDocumentIds: string[];
+            if (requestedDocumentIds && requestedDocumentIds.length > 0) {
+                targetDocumentIds = requestedDocumentIds.filter(id => authorizedIds.includes(id));
+                if (targetDocumentIds.length === 0) {
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'None of the requested documents were found or you do not have permission to access them.',
+                            },
+                        ],
+                        details: {},
+                    };
+                }
+            } else {
+                // Default to all authorized documents
+                targetDocumentIds = authorizedIds;
+            }
+
+            // 3. Call Python RAG Service
             const PYTHON_SERVICE_URL =
                 process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 
             const payload: any = {
                 query: query,
                 limit: limit,
+                document_ids: targetDocumentIds
             };
-
-            if (documentIds && documentIds.length > 0) {
-                payload.document_ids = documentIds;
-            }
 
             const response = await axios.post(
                 `${PYTHON_SERVICE_URL}/api/rag/search`,
@@ -58,44 +106,23 @@ export const search_knowledge_base: ToolDefinition<any, any> = {
                     content: [
                         {
                             type: 'text',
-                            text: 'No relevant information found in the knowledge base for this query.',
+                            text: 'No relevant information found in your accessible documents for this query.',
                         },
                     ],
                     details: {},
                 };
             }
 
-            // Load document metadata to resolve names
-            let docMeta: any = {};
-            try {
-                const dbPath = path.join(
-                    process.cwd(),
-                    'memory',
-                    'documents',
-                    'documents_meta.json',
-                );
-                if (fs.existsSync(dbPath)) {
-                    docMeta = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
-                }
-            } catch (e) {
-                console.error(
-                    'Failed to load document metadata for search:',
-                    e,
-                );
-            }
-
-            // Format results cleanly for the LLM
-            let formattedResults = `Found ${results.length} relevant chunks:\n\n`;
+            // 4. Format results with resolved names from DB
+            let formattedResults = `Found ${results.length} relevant chunks from your accessible knowledge base:\n\n`;
             formattedResults += `IMPORTANT INSTRUCTION: When you use information from these search results in your answer, you MUST cite them using a markdown link with the specific Citation Link provided. Example: "This is a fact [1](cite:123456)."\n\n`;
 
             const citations: Record<string, any> = {};
 
             results.forEach((hit: any, index: number) => {
-                const docName =
-                    docMeta[hit.document_id]?.name || hit.document_id;
+                const docName = docMap[hit.document_id]?.name || hit.document_id;
                 const citeId = hit.id.toString();
 
-                // Store full data for frontend rendering
                 citations[citeId] = {
                     id: citeId,
                     document_name: docName,

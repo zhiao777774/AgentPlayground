@@ -59,6 +59,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const docRecord = await DocumentMeta.create({
             id: documentId,
             ownerId: req.user!.id,
+            ownerName: req.user!.displayName,
             name: originalName,
             status: 'processing',
             path: filePath
@@ -114,9 +115,14 @@ router.get('/', async (req, res) => {
     try {
         const userId = req.user!.id;
         // Only return documents owned by user OR shared with user
-        const docsList = await DocumentMeta.find({
+        const docs = await DocumentMeta.find({
             $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
-        }).sort({ createdAt: -1 });
+        }).sort({ createdAt: -1 }).lean();
+
+        const docsList = docs.map(doc => ({
+            ...doc,
+            isShared: doc.ownerId !== userId
+        }));
 
         res.json(docsList);
     } catch (error) {
@@ -173,7 +179,10 @@ router.get('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Document not found or unauthorized' });
         }
 
-        let doc: any = { ...docModel };
+        let doc: any = { 
+            ...docModel,
+            isShared: docModel.ownerId !== userId
+        };
 
         // Try to get chunk count from Python service
         if (doc.status === 'completed') {
@@ -221,6 +230,65 @@ router.get('/:id/chunks', async (req, res) => {
     } catch (error: any) {
         console.error('Error fetching chunks:', error?.message);
         res.status(500).json({ error: 'Failed to fetch document chunks' });
+    }
+});
+
+// 6. Share Document
+router.post('/:id/share', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { targetUserId, targetUserName } = req.body;
+        const userId = req.user!.id;
+
+        if (!targetUserId || !targetUserName) {
+            return res.status(400).json({ error: 'targetUserId and targetUserName are required' });
+        }
+
+        // Verify ownership
+        const doc = await DocumentMeta.findOne({ id, ownerId: userId });
+        if (!doc) {
+            return res.status(404).json({ error: 'Document not found or unauthorized' });
+        }
+
+        // Add to sharedWith if not already there
+        const alreadyShared = doc.sharedWith.some(u => u.userId === targetUserId);
+        if (!alreadyShared) {
+            doc.sharedWith.push({ userId: targetUserId, name: targetUserName });
+            await doc.save();
+        }
+
+        res.json({ message: 'Document shared successfully', sharedWith: doc.sharedWith });
+    } catch (error) {
+        console.error('Share error:', error);
+        res.status(500).json({ error: 'Failed to share document' });
+    }
+});
+
+// 7. Unshare Document
+router.post('/:id/unshare', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { targetUserId } = req.body;
+        const userId = req.user!.id;
+
+        if (!targetUserId) {
+            return res.status(400).json({ error: 'targetUserId is required' });
+        }
+
+        // Verify ownership
+        const doc = await DocumentMeta.findOne({ id, ownerId: userId });
+        if (!doc) {
+            return res.status(404).json({ error: 'Document not found or unauthorized' });
+        }
+
+        // Remove from sharedWith
+        doc.sharedWith = doc.sharedWith.filter(u => u.userId !== targetUserId);
+        await doc.save();
+
+        res.json({ message: 'Document unshared successfully', sharedWith: doc.sharedWith });
+    } catch (error) {
+        console.error('Unshare error:', error);
+        res.status(500).json({ error: 'Failed to unshare document' });
     }
 });
 

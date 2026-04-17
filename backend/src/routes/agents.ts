@@ -55,16 +55,58 @@ const upload = multer({
     },
 });
 
+/**
+ * Synchronizes the AgentMeta database with the physical agents/ directory.
+ * This handles 'Auto-Registration' for folders created by AI skills in real-time.
+ */
+export async function syncAgentMetaFromDisk(currentUserId: string, currentUsername: string) {
+    const entries = await fs.readdir(agentsDir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+
+        const folderName = entry.name;
+        // Normalize the username to match the folder naming convention (lowercase, no underscores)
+        const folderPrefix = currentUsername.toLowerCase().replace(/_/g, '-');
+        
+        // Only auto-register or correct folders that belong to the CURRENT user
+        if (folderName.startsWith(`${folderPrefix}--`)) {
+            const agentName = folderName.replace(`${folderPrefix}--`, '');
+            const existing = await AgentMeta.findOne({ id: folderName });
+
+            if (!existing) {
+                console.log(`[Auto-Register] Registering new folder: ${folderName}`);
+                const hasAgentsMd = existsSync(path.join(agentsDir, folderName, 'AGENTS.md'));
+                await AgentMeta.create({
+                    id: folderName,
+                    name: agentName,
+                    ownerId: currentUserId,
+                    ownerName: currentUsername, // Use username as name if display name not in sync context
+                    type: hasAgentsMd ? 'KM Agent' : 'General Agent'
+                });
+            } else if (existing.ownerId !== currentUserId) {
+                // CORRECTION: If the agent exists but was claimed by wrong ID (e.g. legacy 'admin')
+                // we correct it to the actual logged-in user's ID.
+                console.log(`[Sync] Correcting owner for ${folderName}: ${existing.ownerId} -> ${currentUserId}`);
+                existing.ownerId = currentUserId;
+                await existing.save();
+            }
+        }
+    }
+}
+
 // GET /api/agents - List all agents
 router.get('/', async (req, res) => {
     try {
         const userId = req.user!.id;
-        const authMetas = await AgentMeta.find({
-            $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
-        });
+        const username = req.user!.username;
+
+        // Perform migration and auto-registration before listing
+        await syncAgentMetaFromDisk(userId, username);
+
+        const authMetas = await AgentMeta.find({ $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }] });
         const validAgentsMap = new Map(authMetas.map(m => [m.id, m]));
 
-        await ensureAgentsDir();
         const entries = await fs.readdir(agentsDir, { withFileTypes: true });
 
         const agents = [];
@@ -79,6 +121,10 @@ router.get('/', async (req, res) => {
                     id: entry.name,
                     name: meta.name,
                     type: meta.type,
+                    ownerId: meta.ownerId,
+                    ownerName: meta.ownerName,
+                    sharedWith: meta.sharedWith,
+                    isShared: meta.ownerId !== userId,
                     createdAt: stat.birthtime.toISOString(),
                     updatedAt: stat.mtime.toISOString(),
                 });
@@ -154,6 +200,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
             id: agentId,
             name: agentName,
             ownerId: req.user!.id,
+            ownerName: req.user!.displayName,
             type: detectedType
         });
 
@@ -190,7 +237,7 @@ router.get('/:id', async (req, res) => {
     }
 
     try {
-        const result: any = { id: agentId, files: {} };
+        const result: any = { id: agentId, files: {}, isShared: authMeta.ownerId !== userId };
 
         // Helper to recursively read all valid markdown files
         async function readFiles(
@@ -301,14 +348,18 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// PUT /api/agents/:id - Update an agent's specific file
 router.put('/:id', async (req, res) => {
     const agentId = req.params.id;
     const userId = req.user!.id;
 
-    const authMeta = await AgentMeta.findOne({ id: agentId, ownerId: userId });
+    // Check if user is owner or shared user
+    const authMeta = await AgentMeta.findOne({
+        id: agentId,
+        $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+    });
+
     if (!authMeta) {
-        return res.status(404).json({ error: 'Agent not found or unauthorized to edit' });
+        return res.status(404).json({ error: 'Agent not found or unauthorized' });
     }
 
     const { filePath, content } = req.body;
@@ -434,6 +485,61 @@ router.delete('/:id', async (req, res) => {
     } catch (error: any) {
         console.error(`Failed to delete agent ${agentId}:`, error);
         res.status(500).json({ error: 'Failed to delete agent' });
+    }
+});
+
+// POST /api/agents/:id/share - Share an agent with another user
+router.post('/:id/share', async (req, res) => {
+    const agentId = req.params.id;
+    const userId = req.user!.id;
+    const { targetUserId, targetUserName } = req.body;
+
+    if (!targetUserId || !targetUserName) {
+        return res.status(400).json({ error: 'targetUserId and targetUserName are required' });
+    }
+
+    try {
+        const agent = await AgentMeta.findOne({ id: agentId, ownerId: userId });
+        if (!agent) {
+            return res.status(404).json({ error: 'Agent not found or unauthorized' });
+        }
+
+        // Check if already shared
+        if (!agent.sharedWith.some(u => u.userId === targetUserId)) {
+            agent.sharedWith.push({ userId: targetUserId, name: targetUserName });
+            await agent.save();
+        }
+
+        res.json(agent.sharedWith);
+    } catch (error) {
+        console.error('Failed to share agent:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// POST /api/agents/:id/unshare - Unshare an agent
+router.post('/:id/unshare', async (req, res) => {
+    const agentId = req.params.id;
+    const userId = req.user!.id;
+    const { targetUserId } = req.body;
+
+    if (!targetUserId) {
+        return res.status(400).json({ error: 'targetUserId is required' });
+    }
+
+    try {
+        const agent = await AgentMeta.findOne({ id: agentId, ownerId: userId });
+        if (!agent) {
+            return res.status(404).json({ error: 'Agent not found or unauthorized' });
+        }
+
+        agent.sharedWith = agent.sharedWith.filter(u => u.userId !== targetUserId);
+        await agent.save();
+
+        res.json(agent.sharedWith);
+    } catch (error) {
+        console.error('Failed to unshare agent:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 

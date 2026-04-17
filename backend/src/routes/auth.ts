@@ -14,7 +14,9 @@ router.post('/login', async (req, res) => {
         const { username, password } = req.body;
 
         if (!username || !password) {
-            return res.status(400).json({ error: 'Username and password are required' });
+            return res
+                .status(400)
+                .json({ error: 'Username and password are required' });
         }
 
         const ldapUrl = process.env.LDAP_URL;
@@ -22,7 +24,7 @@ router.post('/login', async (req, res) => {
             id: '',
             username: '',
             displayName: '',
-            email: ''
+            email: '',
         };
 
         // Dev Bypass if LDAP is not configured
@@ -32,33 +34,46 @@ router.post('/login', async (req, res) => {
                     id: 'admin-dev-id',
                     username: 'admin',
                     displayName: 'Administrator (Dev)',
-                    email: 'admin@local.dev'
+                    email: 'admin@local.dev',
                 };
             } else if (username === 'testuser' && password === 'testuser') {
                 userProfile = {
                     id: 'test-user-id',
                     username: 'testuser',
                     displayName: 'Test User',
-                    email: 'test@local.dev'
+                    email: 'test@local.dev',
                 };
             } else {
-                return res.status(401).json({ error: 'Invalid credentials. (Hint: use admin/admin or testuser/testuser in dev mode)' });
+                return res.status(401).json({
+                    error: 'Invalid credentials. (Hint: use admin/admin or testuser/testuser in dev mode)',
+                });
             }
         } else {
             // LDAP Authentication
             const baseDN = process.env.LDAP_BASE_DN || 'DC=CORP,DC=PEGATRON';
             const serviceAccountDN = process.env.LDAP_SERVICE_ACCOUNT_DN;
-            const serviceAccountPassword = process.env.LDAP_SERVICE_ACCOUNT_PASSWORD;
-            
+            const serviceAccountPassword =
+                process.env.LDAP_SERVICE_ACCOUNT_PASSWORD;
+
             if (!serviceAccountDN || !serviceAccountPassword) {
-                console.error("Missing LDAP_SERVICE_ACCOUNT_DN or LDAP_SERVICE_ACCOUNT_PASSWORD");
-                return res.status(500).json({ error: 'LDAP configuration error' });
+                console.error(
+                    'Missing LDAP_SERVICE_ACCOUNT_DN or LDAP_SERVICE_ACCOUNT_PASSWORD',
+                );
+                return res
+                    .status(500)
+                    .json({ error: 'LDAP configuration error' });
             }
 
-            const searchFilter = (process.env.LDAP_USER_SEARCH_FILTER || '(sAMAccountName={username})').replace('{username}', username);
+            const searchFilter = (
+                process.env.LDAP_USER_SEARCH_FILTER ||
+                '(sAMAccountName={username})'
+            ).replace('{username}', username);
             const emailAttr = process.env.LDAP_EMAIL_ATTRIBUTE || 'mail';
+            const departmentAttr =
+                process.env.LDAP_DEPARTMENT_ATTRIBUTE || 'department';
             const nameAttr = process.env.LDAP_NAME_ATTRIBUTE || 'name'; // Explicitly requested by user
-            const displayNameAttr = process.env.LDAP_DISPLAY_NAME_ATTRIBUTE || 'displayName';
+            const displayNameAttr =
+                process.env.LDAP_DISPLAY_NAME_ATTRIBUTE || 'displayName';
 
             const client = new Client({
                 url: ldapUrl,
@@ -74,29 +89,46 @@ router.post('/login', async (req, res) => {
                 const { searchEntries } = await client.search(baseDN, {
                     filter: searchFilter,
                     scope: 'sub' as SearchOptions['scope'],
-                    attributes: ['dn', emailAttr, displayNameAttr, nameAttr, 'sAMAccountName', 'objectGUID'],
+                    attributes: [
+                        'dn',
+                        emailAttr,
+                        displayNameAttr,
+                        nameAttr,
+                        'sAMAccountName',
+                        'objectGUID',
+                        departmentAttr,
+                    ],
                 });
 
                 if (searchEntries.length === 0) {
                     await client.unbind();
-                    return res.status(401).json({ error: 'User not found in directory' });
+                    return res
+                        .status(401)
+                        .json({ error: 'User not found in directory' });
                 }
 
                 const userEntry = searchEntries[0];
                 const userDN = userEntry.dn as string;
                 const email = userEntry[emailAttr] as string | undefined;
+                const department = userEntry[departmentAttr] as
+                    | string
+                    | undefined;
                 // Prioritize 'name' attribute as requested, then falback to displayName
-                const finalDisplayName = (userEntry[nameAttr] || userEntry[displayNameAttr] || username) as string;
+                const finalDisplayName = (userEntry[nameAttr] ||
+                    userEntry[displayNameAttr] ||
+                    username) as string;
 
                 if (!userEntry.objectGUID) {
                     await client.unbind();
-                    return res.status(500).json({ error: 'Critical LDAP Error: User is missing objectGUID, which is required for unique identification.' });
+                    return res.status(500).json({
+                        error: 'Critical LDAP Error: User is missing objectGUID, which is required for unique identification.',
+                    });
                 }
 
-                const guidBuffer = Buffer.isBuffer(userEntry.objectGUID) 
-                    ? userEntry.objectGUID 
+                const guidBuffer = Buffer.isBuffer(userEntry.objectGUID)
+                    ? userEntry.objectGUID
                     : Buffer.from(userEntry.objectGUID as string, 'binary');
-                
+
                 const guidHex = guidBuffer.toString('hex');
 
                 await client.unbind();
@@ -105,39 +137,44 @@ router.post('/login', async (req, res) => {
                 await client.bind(userDN, password);
                 await client.unbind();
 
+                // Use the official sAMAccountName from LDAP as the authoritative username
+                const authoritativeUsername =
+                    (userEntry.sAMAccountName as string) || username;
+
                 userProfile = {
                     id: guidHex,
-                    username,
+                    username: authoritativeUsername,
                     displayName: finalDisplayName,
-                    email: email || ''
+                    email: email || 'Unknown',
+                    department: department || 'Unknown',
                 };
-
             } catch (error) {
-                try { await client.unbind(); } catch (e) {}
-                console.error("LDAP Authentication error:", error);
-                return res.status(401).json({ error: 'Invalid credentials or LDAP error' });
+                try {
+                    await client.unbind();
+                } catch (e) {}
+                console.error('LDAP Authentication error:', error);
+                return res
+                    .status(401)
+                    .json({ error: 'Invalid credentials or LDAP error' });
             }
         }
 
         // Generate JWT
-        const token = jwt.sign(
-            { ...userProfile },
-            JWT_SECRET,
-            { expiresIn: '3d' }
-        );
+        const token = jwt.sign({ ...userProfile }, JWT_SECRET, {
+            expiresIn: '3d',
+        });
 
         // Set HttpOnly Cookie
         res.cookie(COOKIE_NAME, token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: COOKIE_MAX_AGE
+            maxAge: COOKIE_MAX_AGE,
         });
 
         return res.json({ user: userProfile });
-
     } catch (error) {
-        console.error("Login error:", error);
+        console.error('Login error:', error);
         res.status(500).json({ error: 'Internal server error during login' });
     }
 });
@@ -145,7 +182,7 @@ router.post('/login', async (req, res) => {
 router.post('/logout', (req, res) => {
     res.cookie(COOKIE_NAME, '', {
         httpOnly: true,
-        maxAge: 0
+        maxAge: 0,
     });
     res.json({ message: 'Logged out successfully' });
 });
@@ -178,14 +215,24 @@ router.get('/search-users', requireAuth, async (req, res) => {
         // Dev Bypass
         if (!ldapUrl) {
             const mockUsers = [
-                { id: 'admin-dev-id', username: 'admin', displayName: 'Administrator (Dev)', department: 'IT' },
-                { id: 'test-user-id', username: 'testuser', displayName: 'Test User', department: 'QA' }
+                {
+                    id: 'admin-dev-id',
+                    username: 'admin',
+                    displayName: 'Administrator (Dev)',
+                    department: 'IT',
+                },
+                {
+                    id: 'test-user-id',
+                    username: 'testuser',
+                    displayName: 'Test User',
+                    department: 'QA',
+                },
             ];
-            const filtered = mockUsers.filter(u => 
-                u.id !== req.user!.id && (
-                    u.username.toLowerCase().includes(q.toLowerCase()) || 
-                    u.displayName.toLowerCase().includes(q.toLowerCase())
-                )
+            const filtered = mockUsers.filter(
+                (u) =>
+                    u.id !== req.user!.id &&
+                    (u.username.toLowerCase().includes(q.toLowerCase()) ||
+                        u.displayName.toLowerCase().includes(q.toLowerCase())),
             );
             return res.json({ users: filtered });
         }
@@ -193,7 +240,8 @@ router.get('/search-users', requireAuth, async (req, res) => {
         // LDAP Search
         const baseDN = process.env.LDAP_BASE_DN || 'DC=CORP,DC=PEGATRON';
         const serviceAccountDN = process.env.LDAP_SERVICE_ACCOUNT_DN;
-        const serviceAccountPassword = process.env.LDAP_SERVICE_ACCOUNT_PASSWORD;
+        const serviceAccountPassword =
+            process.env.LDAP_SERVICE_ACCOUNT_PASSWORD;
 
         if (!serviceAccountDN || !serviceAccountPassword) {
             return res.status(500).json({ error: 'LDAP configuration error' });
@@ -213,34 +261,44 @@ router.get('/search-users', requireAuth, async (req, res) => {
             const { searchEntries } = await client.search(baseDN, {
                 filter,
                 scope: 'sub',
-                attributes: ['objectGUID', 'sAMAccountName', 'displayName', 'name', 'department'],
-                sizeLimit: 10
+                attributes: [
+                    'objectGUID',
+                    'sAMAccountName',
+                    'displayName',
+                    'name',
+                    'department',
+                ],
+                sizeLimit: 10,
             });
 
-            const users = searchEntries.map(entry => {
-                const guidBuffer = Buffer.isBuffer(entry.objectGUID) 
-                    ? entry.objectGUID 
+            const users = searchEntries.map((entry) => {
+                const guidBuffer = Buffer.isBuffer(entry.objectGUID)
+                    ? entry.objectGUID
                     : Buffer.from(entry.objectGUID as string, 'binary');
                 const guidHex = guidBuffer.toString('hex');
-                
+
                 return {
                     id: guidHex,
                     username: entry.sAMAccountName as string,
-                    displayName: (entry.name || entry.displayName || entry.sAMAccountName) as string,
-                    department: (entry.department || 'N/A') as string
+                    displayName: (entry.name ||
+                        entry.displayName ||
+                        entry.sAMAccountName) as string,
+                    department: (entry.department || 'N/A') as string,
                 };
             });
 
-            const filteredUsers = users.filter(u => u.id !== req.user!.id);
+            const filteredUsers = users.filter((u) => u.id !== req.user!.id);
             await client.unbind();
             return res.json({ users: filteredUsers });
         } catch (error) {
-            try { await client.unbind(); } catch (e) {}
-            console.error("LDAP Search error:", error);
+            try {
+                await client.unbind();
+            } catch (e) {}
+            console.error('LDAP Search error:', error);
             return res.status(500).json({ error: 'Failed to search users' });
         }
     } catch (error) {
-        console.error("Search users error:", error);
+        console.error('Search users error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

@@ -1,7 +1,6 @@
 import { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
-import axios from 'axios';
-import * as path from 'path';
+import { DocumentMeta } from '../models/ResourceMeta.js';
 
 export const listKnowledgeBaseDocumentsSchema = Type.Object({});
 
@@ -13,24 +12,32 @@ export const list_knowledge_base_documents: ToolDefinition<any, any> = {
     parameters: listKnowledgeBaseDocumentsSchema,
     execute: async (_toolCallId, _params, _signal, _onUpdate, _ctx) => {
         try {
-            // Document metadata is stored by the backend Express server
-            const API_BASE =
-                process.env.VITE_API_BASE || 'http://localhost:3001/api';
-            const response = await axios.get(`${API_BASE}/documents`);
+            const userId = _ctx?.userId;
+            if (!userId) {
+                throw new Error('User ID not found in tool context');
+            }
 
-            const docs = response.data.map((doc: any) => ({
+            // Directly query the database for documents owned by or shared with the user
+            const docs = await DocumentMeta.find({
+                $or: [
+                    { ownerId: userId },
+                    { 'sharedWith.userId': userId }
+                ]
+            }).lean();
+
+            const formattedDocs = docs.map((doc: any) => ({
                 id: doc.id,
                 name: doc.name,
                 status: doc.status,
                 createdAt: doc.createdAt,
             }));
 
-            if (docs.length === 0) {
+            if (formattedDocs.length === 0) {
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: 'No documents are currently available in the Knowledge Base.',
+                            text: 'No documents are currently available in the Knowledge Base for your account.',
                         },
                     ],
                     details: {},
@@ -41,7 +48,7 @@ export const list_knowledge_base_documents: ToolDefinition<any, any> = {
                 content: [
                     {
                         type: 'text',
-                        text: `Available Knowledge Base Documents:\n\n${JSON.stringify(docs, null, 2)}`,
+                        text: `Available Knowledge Base Documents:\n\n${JSON.stringify(formattedDocs, null, 2)}`,
                     },
                 ],
                 details: {},
@@ -52,7 +59,7 @@ export const list_knowledge_base_documents: ToolDefinition<any, any> = {
                 content: [
                     {
                         type: 'text',
-                        text: `Error: Failed to retrieve document list. The Knowledge Base service might be offline.`,
+                        text: `Error: Failed to retrieve document list. ${error instanceof Error ? error.message : 'Unknown error'}.`,
                     },
                 ],
                 details: {},
