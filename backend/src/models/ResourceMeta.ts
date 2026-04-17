@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 // Base Interfaces
 export interface IBaseMeta extends Document {
   ownerId: string;
+  ownerName: string;
   sharedWith: Array<{ userId: string, name: string }>;
 }
 
@@ -29,6 +30,7 @@ export interface IDocumentMeta extends IBaseMeta {
 // Schemas
 const BaseSchemaFields = {
     ownerId: { type: String, required: true },
+    ownerName: { type: String, default: '' },
     sharedWith: [{
         userId: { type: String, required: true },
         name: { type: String, required: true }
