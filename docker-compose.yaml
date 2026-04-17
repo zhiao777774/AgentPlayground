@@ -25,6 +25,7 @@ services:
             - LDAP_EMAIL_ATTRIBUTE=
             - LDAP_DISPLAY_NAME_ATTRIBUTE=
             - LDAP_NAME_ATTRIBUTE=
+            - LDAP_DEPARTMENT_ATTRIBUTE=
             # JWT Signing Key
             - JWT_SECRET=agent-playground-jwt-auth-secret
             # Database
