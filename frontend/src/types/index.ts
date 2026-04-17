@@ -1,3 +1,10 @@
+export interface User {
+    id: string;
+    username: string;
+    displayName: string;
+    email: string;
+}
+
 export interface Model {
     id: string;
     name: string;
@@ -19,6 +26,16 @@ export interface Session {
         agentId: string | null;
     }>;
     contextUsage?: { tokens: number; contextWindow: number; percent: number };
+    ownerId?: string;
+    sharedWith?: Array<{ userId: string, name: string }>;
+    isShared?: boolean;
+}
+
+export interface SearchUser {
+    id: string;
+    username: string;
+    displayName: string;
+    department: string;
 }
 
 export interface Message {

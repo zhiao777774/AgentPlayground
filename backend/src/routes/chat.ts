@@ -12,6 +12,7 @@ import { memory_get } from '../tools/memory_get.js';
 import { agent_list } from '../tools/agent_list.js';
 import { list_knowledge_base_documents } from '../tools/list_knowledge_base_documents.js';
 import { search_knowledge_base } from '../tools/search_knowledge_base.js';
+import { AgentMeta } from '../models/ResourceMeta.js';
 
 // --- Custom Fallback for Unhandled Context Window Errors ---
 // The underlying pi-ai SDK detects context length errors via predefined regex patterns.
@@ -209,73 +210,61 @@ router.post('/', async (req, res) => {
             actualMessage.trim() === '/agent list' ||
             actualMessage.trim() === '/agents'
         ) {
-            const agentsDir = path.resolve(__dirname, '../../agents');
             try {
-                if (!fs.existsSync(agentsDir)) {
-                    handleAsStaticSystemResponse = 'No agents directory found.';
+                const userId = req.user!.id;
+                const dbAgents = await AgentMeta.find({ $or: [{ ownerId: userId }, { sharedWith: userId }] });
+
+                if (dbAgents.length === 0) {
+                    handleAsStaticSystemResponse = 'No custom agents found.';
                 } else {
-                    const entries = await fs.promises.readdir(agentsDir, {
-                        withFileTypes: true,
-                    });
-                    const agents = [];
-                    for (const entry of entries) {
-                        if (
-                            entry.isDirectory() &&
-                            !entry.name.startsWith('.')
-                        ) {
-                            const stat = await fs.promises.stat(
-                                path.join(agentsDir, entry.name),
-                            );
-                            agents.push(
-                                `- **${entry.name}** (Created: ${stat.birthtime.toISOString().split('T')[0]})`,
-                            );
-                        }
-                    }
-                    if (agents.length === 0) {
-                        handleAsStaticSystemResponse =
-                            'No custom agents found.';
-                    } else {
-                        handleAsStaticSystemResponse = `Found ${agents.length} agent(s):\n${agents.join('\n')}`;
-                    }
+                    const agentLines = dbAgents.map(a => `- **${a.name}** (Type: ${a.type || 'Unknown'})`);
+                    handleAsStaticSystemResponse = `Found ${dbAgents.length} agent(s):\n${agentLines.join('\n')}`;
                 }
             } catch (error: any) {
-                handleAsStaticSystemResponse = `Failed to read agents directory: ${error.message}`;
+                handleAsStaticSystemResponse = `Failed to list agents: ${error.message}`;
             }
         }
 
-        // Match `/agent <id>` or `/agent <id> <optional message>`
+        // Match `/agent <name>` or `/agent <name> <optional message>`
         const agentMatch = actualMessage.match(
             /^\/agent\s+([a-zA-Z0-9_-]+)(?:\s+(.*))?$/i,
         );
         if (agentMatch && !handleAsStaticSystemResponse) {
-            const requestedAgentId = agentMatch[1];
-            targetAgentId =
-                requestedAgentId === 'default' ? null : requestedAgentId;
+            const requestedAgentName = agentMatch[1];
+            targetAgentId = requestedAgentName === 'default' ? null : requestedAgentName;
 
-            // Validate the agent exists (skip for 'default')
+            // Validate the agent exists specifically for this user
             if (targetAgentId) {
-                const agentsDir = path.resolve(__dirname, '../../agents');
-                const agentPath = path.join(agentsDir, targetAgentId);
-                if (
-                    !fs.existsSync(agentPath) ||
-                    !fs.statSync(agentPath).isDirectory()
-                ) {
-                    handleAsStaticSystemResponse = `Agent \"${targetAgentId}\" not found. Use \`/agents\` or \`/agent list\` to see available agents.`;
-                    // Don't proceed with routing — just show the error
+                const userId = req.user!.id;
+                // Clean proper query syntax:
+                const validMetas = await AgentMeta.find({
+                    $and: [
+                        { $or: [{ name: requestedAgentName }, { id: requestedAgentName }] },
+                        { $or: [{ ownerId: userId }, { sharedWith: userId }] }
+                    ]
+                });
+
+                if (validMetas.length === 0) {
+                    handleAsStaticSystemResponse = `Agent \"${requestedAgentName}\" not found. Use \`/agents\` or \`/agent list\` to see available agents.`;
                     targetAgentId = undefined as any;
+                } else if (validMetas.length > 1) {
+                    const agentLines = validMetas.map(a => `- **ID:** ${a.id} (Owner: ${a.ownerId})`);
+                    handleAsStaticSystemResponse = `Multiple identical agents found with the name "${requestedAgentName}". Please select it directly from the UI dropdown, or type the exact ID:\n${agentLines.join('\n')}`;
+                    targetAgentId = undefined as any;
+                } else {
+                    targetAgentId = validMetas[0].id; // Map to the exact UUID physical path
                 }
             }
 
             if (handleAsStaticSystemResponse === null) {
                 if (agentMatch[2] && agentMatch[2].trim().length > 0) {
-                    // If there is a message after the id, it's a one-off override
                     actualMessage = agentMatch[2].trim();
                     isOneOff = true;
                 } else {
                     sessionManager.appendCustomEntry('agent_routing', {
                         agentId: targetAgentId,
                     });
-                    handleAsStaticSystemResponse = `Successfully switched agent mode to: ${targetAgentId || 'default'}. Future messages in this session will be routed to this agent.`;
+                    handleAsStaticSystemResponse = `Successfully switched agent mode to: ${requestedAgentName === 'default' ? 'default' : agentMatch[1]}. Future messages in this session will be routed to this agent.`;
                     res.write(
                         `data: ${JSON.stringify({ type: 'active_agent', id: targetAgentId || null })}\n\n`,
                     );

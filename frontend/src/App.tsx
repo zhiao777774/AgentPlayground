@@ -6,11 +6,14 @@ import { ModelSelector } from './components/ModelSelector';
 import { AgentDashboard } from './components/AgentDashboard';
 import { AgentDetail } from './components/AgentDetail';
 import { KnowledgeBase } from './components/KnowledgeBase';
+import { Login } from './components/Login';
 import { api, API_BASE } from './services/api';
-import type { Model, Session, Message, Agent, AgentDetail as AgentDetailType, DocumentMeta } from './types/index';
+import type { User, Model, Session, Message, Agent, AgentDetail as AgentDetailType, DocumentMeta } from './types/index';
 import { Bot, AlertCircle } from 'lucide-react';
 
 function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [models, setModels] = useState<Model[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -40,17 +43,36 @@ function App() {
   const [isLoadingDocs, setIsLoadingDocs] = useState(false);
 
   useEffect(() => {
-    fetchModels();
-    fetchSessions();
+    checkAuth();
   }, []);
 
-  useEffect(() => {
-    if (activeTab === 'agent') {
-      fetchAgents();
-    } else if (activeTab === 'knowledge') {
-      fetchDocuments();
+  const checkAuth = async () => {
+    try {
+      const data = await api.auth.me();
+      setCurrentUser(data.user);
+    } catch {
+      setCurrentUser(null);
+    } finally {
+      setIsAuthLoading(false);
     }
-  }, [activeTab]);
+  };
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchModels();
+      fetchSessions();
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser) {
+      if (activeTab === 'agent') {
+        fetchAgents();
+      } else if (activeTab === 'knowledge') {
+        fetchDocuments();
+      }
+    }
+  }, [activeTab, currentUser]);
 
   const fetchAgents = async () => {
     setIsLoadingAgents(true);
@@ -246,6 +268,48 @@ function App() {
       fetchSessions();
     } catch (err) {
       console.error('Failed to delete session', err);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.auth.logout();
+    } catch (err) {
+      console.error('Logout failed', err);
+    } finally {
+      // Clear all user-related and session-related state
+      setCurrentUser(null);
+      setSessions([]);
+      setActiveSessionId(null);
+      setSessionMessages([]);
+      setActiveLeafId(null);
+      setQuotedMessage(null);
+      setContextUsage(null);
+      setPendingActions([]);
+      setGenerationStatus(false);
+      setError(null);
+      setActiveAgentDetail(null);
+      setActiveTab('chat');
+    }
+  };
+
+  const handleShareSession = async (id: string, targetUserId: string, targetUserName: string) => {
+    try {
+      const sharedWith = await api.sessions.share(id, targetUserId, targetUserName);
+      setSessions(prev => prev.map(s => s.id === id ? { ...s, sharedWith } : s));
+    } catch (err) {
+      console.error('Failed to share session', err);
+      setError('Failed to share session.');
+    }
+  };
+
+  const handleUnshareSession = async (id: string, targetUserId: string) => {
+    try {
+      const sharedWith = await api.sessions.unshare(id, targetUserId);
+      setSessions(prev => prev.map(s => s.id === id ? { ...s, sharedWith } : s));
+    } catch (err) {
+      console.error('Failed to unshare session', err);
+      setError('Failed to unshare session.');
     }
   };
 
@@ -554,10 +618,25 @@ function App() {
 
   // Final activeAgentId: prefer branch-level, fall back to session-level
   const activeAgentId = branchAgentId !== undefined ? branchAgentId : (activeSession?.activeAgentId ?? null);
+  const isReadOnly = !!activeSession?.isShared;
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <Login onLogin={setCurrentUser} />;
+  }
 
   return (
     <div className="flex h-screen bg-white dark:bg-black font-sans text-gray-900 dark:text-gray-100 antialiased selection:bg-blue-500/30">
       <Sidebar
+        user={currentUser}
+        onLogout={handleLogout}
         sessions={sessions}
         activeSessionId={activeSessionId}
         activeTab={activeTab as 'chat' | 'agent' | 'knowledge'}
@@ -566,6 +645,8 @@ function App() {
         onNewSession={handleNewSession}
         onRenameSession={handleRenameSession}
         onDeleteSession={handleDeleteSession}
+        onShareSession={handleShareSession}
+        onUnshareSession={handleUnshareSession}
         isLoading={isLoadingSessions}
       />
 
@@ -679,6 +760,7 @@ function App() {
               onResend={handleSendMessage}
               onQuote={(msg) => setQuotedMessage({ id: msg.id, content: msg.content })}
               isLoading={generationStatus || undefined}
+              readOnly={isReadOnly}
             />
           </div>
 
@@ -689,10 +771,11 @@ function App() {
               onStop={handleStopGeneration}
               onSteer={handleSteerMessage}
               isGenerating={generationStatus}
-              disabled={generationStatus !== false || !selectedModelId}
+              disabled={generationStatus !== false || !selectedModelId || isReadOnly}
               quotedMessage={quotedMessage}
               onClearQuote={() => setQuotedMessage(null)}
               pendingActions={pendingActions}
+              readOnly={isReadOnly}
             />
           </div>
         </div>

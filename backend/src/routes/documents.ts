@@ -5,13 +5,13 @@ import fs from 'fs';
 import axios from 'axios';
 import FormData from 'form-data';
 import { randomUUID } from 'crypto';
+import { DocumentMeta } from '../models/ResourceMeta.js';
 
 const router = Router();
 
 // Configuration
 const UPLOAD_DIR = path.join(process.cwd(), 'memory', 'documents');
-const PYTHON_SERVICE_URL =
-    process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 
 // Ensure upload directory exists
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -24,9 +24,7 @@ const storage = multer.diskStorage({
         cb(null, UPLOAD_DIR);
     },
     filename: (req, file, cb) => {
-        // Generate a unique ID for the document
         const documentId = randomUUID();
-        // Keep the original extension
         const ext = path.extname(file.originalname);
         cb(null, `${documentId}${ext}`);
     },
@@ -40,29 +38,10 @@ const upload = multer({
         if (allowed.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(
-                new Error(
-                    'Only PDF and TXT files are currently supported for RAG.',
-                ),
-            );
+            cb(new Error('Only PDF and TXT files are currently supported for RAG.'));
         }
     },
 });
-
-// In-memory simple database for document metadata (in a real app, use a DB)
-// Format: { documentId: { id, name, status, createdAt, path } }
-const documentsDBPath = path.join(UPLOAD_DIR, 'documents_meta.json');
-
-const loadDB = () => {
-    if (fs.existsSync(documentsDBPath)) {
-        return JSON.parse(fs.readFileSync(documentsDBPath, 'utf8'));
-    }
-    return {};
-};
-
-const saveDB = (data: any) => {
-    fs.writeFileSync(documentsDBPath, JSON.stringify(data, null, 2), 'utf8');
-};
 
 // 1. Upload Document
 router.post('/upload', upload.single('file'), async (req, res) => {
@@ -74,46 +53,31 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const documentId = path.parse(req.file.filename).name;
         const filePath = req.file.path;
         // Multer originalname is often interpreted as latin1, need to decode as utf8
-        const originalName = Buffer.from(
-            req.file.originalname,
-            'latin1',
-        ).toString('utf8');
+        const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
 
         // Save metadata
-        const db = loadDB();
-        db[documentId] = {
+        const docRecord = await DocumentMeta.create({
             id: documentId,
+            ownerId: req.user!.id,
             name: originalName,
-            status: 'processing', // pending -> processing -> completed/failed
-            createdAt: new Date().toISOString(),
-            path: filePath,
-        };
-        saveDB(db);
+            status: 'processing',
+            path: filePath
+        });
 
         // Forward to Python service asynchronously
-        // We don't await this to avoid blocking the HTTP response
         forwardToPythonService(documentId, filePath, originalName)
-            .then(() => {
-                const currentDb = loadDB();
-                if (currentDb[documentId]) {
-                    currentDb[documentId].status = 'completed';
-                    saveDB(currentDb);
-                }
+            .then(async () => {
+                await DocumentMeta.updateOne({ id: documentId }, { status: 'completed' });
             })
-            .catch((err) => {
+            .catch(async (err) => {
                 console.error(`Failed to process document ${documentId}:`, err);
-                const currentDb = loadDB();
-                if (currentDb[documentId]) {
-                    currentDb[documentId].status = 'failed';
-                    currentDb[documentId].error = err.message;
-                    saveDB(currentDb);
-                }
+                await DocumentMeta.updateOne({ id: documentId }, { status: 'failed', error: err.message });
             });
 
         // Return immediately to the client
         res.status(202).json({
             message: 'Document uploaded and queued for processing',
-            document: db[documentId],
+            document: docRecord,
         });
     } catch (error: any) {
         console.error('Upload error:', error);
@@ -124,30 +88,21 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 // Helper to send file to Python
-async function forwardToPythonService(
-    documentId: string,
-    filePath: string,
-    originalName: string,
-) {
+async function forwardToPythonService(documentId: string, filePath: string, originalName: string) {
     const form = new FormData();
-    // Determine content type from file extension
     const ext = path.extname(filePath).toLowerCase();
-    const contentType =
-        ext === '.txt' ? 'text/plain' : 'application/pdf';
+    const contentType = ext === '.txt' ? 'text/plain' : 'application/pdf';
     form.append('file', fs.createReadStream(filePath), {
         filename: originalName,
         contentType,
     });
 
-    // The Python service endpoints take document_id as a query param
     const response = await axios.post(
         `${PYTHON_SERVICE_URL}/api/rag/process?document_id=${documentId}`,
         form,
         {
-            headers: {
-                ...form.getHeaders(),
-            },
-            maxBodyLength: Infinity, // For large PDFs
+            headers: { ...form.getHeaders() },
+            maxBodyLength: Infinity,
         },
     );
 
@@ -155,14 +110,14 @@ async function forwardToPythonService(
 }
 
 // 2. List Documents
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     try {
-        const db = loadDB();
-        const docsList = Object.values(db).sort(
-            (a: any, b: any) =>
-                new Date(b.createdAt).getTime() -
-                new Date(a.createdAt).getTime(),
-        );
+        const userId = req.user!.id;
+        // Only return documents owned by user OR shared with user
+        const docsList = await DocumentMeta.find({
+            $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+        }).sort({ createdAt: -1 });
+
         res.json(docsList);
     } catch (error) {
         res.status(500).json({ error: 'Failed to list documents' });
@@ -173,25 +128,19 @@ router.get('/', (req, res) => {
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const db = loadDB();
+        const userId = req.user!.id;
 
-        if (!db[id]) {
-            return res.status(404).json({ error: 'Document not found' });
+        // Verify ownership (only owners can delete)
+        const doc = await DocumentMeta.findOne({ id, ownerId: userId });
+        if (!doc) {
+            return res.status(404).json({ error: 'Document not found or unauthorized' });
         }
-
-        const doc = db[id];
 
         // 1. Delete vectors from Milvus via Python service
         try {
-            await axios.post(`${PYTHON_SERVICE_URL}/api/rag/delete`, {
-                document_id: id,
-            });
+            await axios.post(`${PYTHON_SERVICE_URL}/api/rag/delete`, { document_id: id });
         } catch (pyErr) {
-            console.error(
-                `Failed to delete vectors for ${id} in Python service, but proceeding to remove local file.`,
-                pyErr,
-            );
-            // We continue even if Milvus deletion fails, to ensure local cleanup
+            console.error(`Failed to delete vectors for ${id} in Python service, but proceeding to remove local file.`, pyErr);
         }
 
         // 2. Delete local file
@@ -200,8 +149,7 @@ router.delete('/:id', async (req, res) => {
         }
 
         // 3. Remove metadata
-        delete db[id];
-        saveDB(db);
+        await DocumentMeta.deleteOne({ id });
 
         res.json({ message: 'Document deleted successfully' });
     } catch (error) {
@@ -214,13 +162,18 @@ router.delete('/:id', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const db = loadDB();
+        const userId = req.user!.id;
 
-        if (!db[id]) {
-            return res.status(404).json({ error: 'Document not found' });
+        const docModel = await DocumentMeta.findOne({
+            id, 
+            $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+        }).lean();
+
+        if (!docModel) {
+            return res.status(404).json({ error: 'Document not found or unauthorized' });
         }
 
-        const doc = { ...db[id] };
+        let doc: any = { ...docModel };
 
         // Try to get chunk count from Python service
         if (doc.status === 'completed') {
@@ -245,10 +198,15 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/chunks', async (req, res) => {
     try {
         const { id } = req.params;
-        const db = loadDB();
+        const userId = req.user!.id;
 
-        if (!db[id]) {
-            return res.status(404).json({ error: 'Document not found' });
+        const docModel = await DocumentMeta.findOne({
+            id, 
+            $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+        });
+
+        if (!docModel) {
+            return res.status(404).json({ error: 'Document not found or unauthorized' });
         }
 
         const limit = parseInt(req.query.limit as string) || 50;

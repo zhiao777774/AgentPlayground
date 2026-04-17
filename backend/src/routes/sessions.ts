@@ -3,6 +3,7 @@ import { SessionManager } from '@mariozechner/pi-coding-agent';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { modelRegistry } from '../server.js';
+import { SessionMeta } from '../models/ResourceMeta.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -37,6 +38,12 @@ router.post('/', async (req, res) => {
             `[DEBUG POST /sessions] Created session. ID=${fullId}, file=${sessionFile}`,
         );
 
+        await SessionMeta.create({
+            id: fullId,
+            ownerId: req.user!.id,
+            name: 'New Session'
+        });
+
         res.status(201).json({
             sessionId: fullId,
             message: 'Session created',
@@ -53,15 +60,18 @@ import fs from 'fs';
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const sessions = await SessionManager.list(process.cwd(), sessionsDir);
+        const userId = req.user!.id;
 
-        // Find session — flexible matching: UUID or full timestamped ID
-        const session = sessions.find(
-            (s) =>
-                s.id === id ||
-                s.id.endsWith(`_${id}`) ||
-                id.endsWith(`_${s.id}`),
-        );
+        const authMeta = await SessionMeta.findOne({
+            id,
+            $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+        });
+        if (!authMeta) {
+            return res.status(404).json({ error: 'Session not found or unauthorized' });
+        }
+
+        const sessions = await SessionManager.list(process.cwd(), sessionsDir);
+        const session = sessions.find((s) => s.id === id);
 
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
@@ -422,6 +432,9 @@ router.get('/:id', async (req, res) => {
             lastModelId: modelId !== 'default' ? modelId : undefined,
             agentRoutingEntries,
             contextUsage,
+            ownerId: authMeta.ownerId,
+            sharedWith: authMeta.sharedWith,
+            isShared: authMeta.ownerId !== userId
         });
     } catch (error) {
         console.error('Error retrieving session:', error);
@@ -434,23 +447,25 @@ router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { name } = req.body;
+        const userId = req.user!.id;
 
-        if (!name) {
+        const authMeta = await SessionMeta.findOne({ id, ownerId: userId });
+        if (!authMeta) {
+            return res.status(403).json({ error: 'Only the session owner can rename it' });
+        }
+
+        if (typeof name !== 'string') {
             return res.status(400).json({ error: 'Name is required' });
         }
 
         const sessions = await SessionManager.list(process.cwd(), sessionsDir);
-        const sessionRecord = sessions.find(
-            (s) => s.id === id || s.id.endsWith(`_${id}`),
-        );
+        const sessionRecord = sessions.find((s) => s.id === id);
 
         if (!sessionRecord) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
         // Directly append a session_info entry to the JSONL file.
-        // SessionManager.appendSessionInfo() only writes in-memory and never
-        // flushes to disk on its own, so we write the line manually.
         const infoEntry = {
             type: 'session_info',
             id: Math.random().toString(36).slice(2, 10),
@@ -459,6 +474,8 @@ router.put('/:id', async (req, res) => {
             name,
         };
         fs.appendFileSync(sessionRecord.path, JSON.stringify(infoEntry) + '\n');
+
+        await SessionMeta.updateOne({ id }, { name });
 
         res.json({ message: 'Session updated successfully' });
     } catch (error) {
@@ -471,13 +488,21 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.user!.id;
+
+        const authMeta = await SessionMeta.findOne({ id, ownerId: userId });
+        if (!authMeta) {
+            return res.status(403).json({ error: 'Only the session owner can delete it' });
+        }
+
         const sessions = await SessionManager.list(process.cwd(), sessionsDir);
-        const sessionRecord = sessions.find(
-            (s) => s.id === id || s.id.endsWith(`_${id}`),
-        );
+        const sessionRecord = sessions.find((s) => s.id === id);
+
+        // Remove from database even if local file is missing
+        await SessionMeta.deleteOne({ id });
 
         if (!sessionRecord) {
-            return res.status(404).json({ error: 'Session not found' });
+            return res.status(404).json({ error: 'Session not found locally' });
         }
 
         if (fs.existsSync(sessionRecord.path)) {
@@ -500,11 +525,73 @@ router.delete('/:id', async (req, res) => {
 // List all sessions
 router.get('/', async (req, res) => {
     try {
+        const userId = req.user!.id;
+        const authMetas = await SessionMeta.find({
+            $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+        });
+        
         const sessions = await SessionManager.list(process.cwd(), sessionsDir);
-        res.json(sessions);
+        
+        const metaMap = new Map(authMetas.map(m => [m.id, m]));
+        const filteredSessions = sessions
+            .filter(s => metaMap.has(s.id))
+            .map(s => {
+                const meta = metaMap.get(s.id)!;
+                return {
+                    ...s,
+                    ownerId: meta.ownerId,
+                    sharedWith: meta.sharedWith,
+                    isShared: meta.ownerId !== userId
+                };
+            });
+
+        res.json(filteredSessions);
     } catch (error) {
         console.error('Error listing sessions:', error);
         res.status(500).json({ error: 'Failed to list sessions' });
+    }
+});
+
+// Share a session
+router.post('/:id/share', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { targetUserId, targetUserName } = req.body;
+        const userId = req.user!.id;
+
+        if (!targetUserId || !targetUserName) return res.status(400).json({ error: 'targetUserId and targetUserName are required' });
+
+        const session = await SessionMeta.findOne({ id, ownerId: userId });
+        if (!session) return res.status(404).json({ error: 'Session not found or not owned by you' });
+
+        if (!session.sharedWith.some(p => p.userId === targetUserId)) {
+            session.sharedWith.push({ userId: targetUserId, name: targetUserName });
+            await session.save();
+        }
+
+        res.json({ message: 'Session shared successfully', sharedWith: session.sharedWith });
+    } catch (error) {
+        console.error('Error sharing session:', error);
+        res.status(500).json({ error: 'Failed to share session' });
+    }
+});
+
+// Unshare a session
+router.delete('/:id/share/:targetUserId', async (req, res) => {
+    try {
+        const { id, targetUserId } = req.params;
+        const userId = req.user!.id;
+
+        const session = await SessionMeta.findOne({ id, ownerId: userId });
+        if (!session) return res.status(404).json({ error: 'Session not found or not owned by you' });
+
+        session.sharedWith = session.sharedWith.filter(p => p.userId !== targetUserId);
+        await session.save();
+
+        res.json({ message: 'Session unshared successfully', sharedWith: session.sharedWith });
+    } catch (error) {
+        console.error('Error unsharing session:', error);
+        res.status(500).json({ error: 'Failed to unshare session' });
     }
 });
 

@@ -11,6 +11,7 @@ interface ChatWindowProps {
     onResend: (content: string, parentId: string | null) => void;
     onQuote: (msg: Message) => void;
     isLoading?: 'generating' | 'compacting' | 'retrying' | false;
+    readOnly?: boolean;
 }
 
 function EditMessageContent({
@@ -56,6 +57,7 @@ export function ChatWindow({
     onResend,
     onQuote,
     isLoading,
+    readOnly = false,
 }: ChatWindowProps) {
 
     const globalCitations = useMemo(() => {
@@ -400,7 +402,7 @@ export function ChatWindow({
                                                 </div>
 
                                                 {/* Action Buttons Container */}
-                                                {editingMessageId !== msg.id && (
+                                                {editingMessageId !== msg.id && !readOnly && (
                                                     <div className={`flex items-start gap-1 pt-2 shrink-0 opacity-0 group-hover/content:opacity-100 transition-opacity ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                                                         {msg.role === 'user' && (
                                                             <>
@@ -432,6 +434,19 @@ export function ChatWindow({
                                                                 <Quote className="w-4 h-4" />
                                                             </button>
                                                         )}
+                                                    </div>
+                                                )}
+
+                                                {/* Action Buttons Container (ReadOnly - Quote Only) */}
+                                                {editingMessageId !== msg.id && readOnly && msg.role === 'assistant' && (
+                                                    <div className={`flex items-start gap-1 pt-2 shrink-0 opacity-0 group-hover/content:opacity-100 transition-opacity flex-row`}>
+                                                        <button
+                                                            onClick={() => onQuote(msg)}
+                                                            className="p-1.5 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md cursor-pointer transition-colors"
+                                                            title="Quote this reply"
+                                                        >
+                                                            <Quote className="w-4 h-4" />
+                                                        </button>
                                                     </div>
                                                 )}
                                             </div>

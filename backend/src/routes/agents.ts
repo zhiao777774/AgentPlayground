@@ -7,6 +7,8 @@ import multer from 'multer';
 import unzipper from 'unzipper';
 import archiver from 'archiver';
 import { Readable } from 'stream';
+import { randomUUID } from 'crypto';
+import { AgentMeta } from '../models/ResourceMeta.js';
 
 // Configuration constants for file traversing
 const IGNORED_DIRS = new Set([
@@ -56,27 +58,27 @@ const upload = multer({
 // GET /api/agents - List all agents
 router.get('/', async (req, res) => {
     try {
+        const userId = req.user!.id;
+        const authMetas = await AgentMeta.find({
+            $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+        });
+        const validAgentsMap = new Map(authMetas.map(m => [m.id, m]));
+
         await ensureAgentsDir();
         const entries = await fs.readdir(agentsDir, { withFileTypes: true });
 
         const agents = [];
         for (const entry of entries) {
-            if (entry.isDirectory()) {
+            if (entry.isDirectory() && validAgentsMap.has(entry.name)) {
                 const agentPath = path.join(agentsDir, entry.name);
                 const stat = await fs.stat(agentPath);
-
-                // Read AGENTS.md to extract some metadata if needed (e.g. type/goal)
-                let type = 'Unknown';
-                const agentsMdPath = path.join(agentPath, 'AGENTS.md');
-                if (existsSync(agentsMdPath)) {
-                    // Could optionally parse AGENTS.md here, for now just marking it exists
-                    type = 'KM Agent'; // Defaulting to KM Agent as per current scope, can be refined based on file content
-                }
+                
+                const meta = validAgentsMap.get(entry.name)!;
 
                 agents.push({
                     id: entry.name,
-                    name: entry.name,
-                    type: type,
+                    name: meta.name,
+                    type: meta.type,
                     createdAt: stat.birthtime.toISOString(),
                     updatedAt: stat.mtime.toISOString(),
                 });
@@ -123,24 +125,41 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         }
 
         const agentName = Array.from(rootEntries)[0];
-        const agentPath = path.join(agentsDir, agentName);
+        const agentId = randomUUID();
+        const finalAgentPath = path.join(agentsDir, agentId);
 
-        // Step 2: Check for conflict
-        if (existsSync(agentPath)) {
-            return res.status(409).json({
-                error: `An agent named "${agentName}" already exists.`,
-            });
+        // Step 2: Extract zip safely to a temp dir then rename to UUID
+        await ensureAgentsDir();
+        const tempExtracDir = path.join(agentsDir, `.tmp_${agentId}`);
+        await fs.mkdir(tempExtracDir, { recursive: true });
+
+        try {
+            const readStream = Readable.from(zipBuffer);
+            await readStream.pipe(unzipper.Extract({ path: tempExtracDir })).promise();
+
+            const sourceFolder = path.join(tempExtracDir, agentName);
+            await fs.rename(sourceFolder, finalAgentPath);
+        } finally {
+            // Clean up zip artifacts
+            if (existsSync(tempExtracDir)) {
+                await fs.rm(tempExtracDir, { recursive: true, force: true });
+            }
         }
 
-        // Step 3: Extract zip
-        await ensureAgentsDir();
+        // Auto-detect agent type based on folder contents
+        const hasAgentsMd = existsSync(path.join(finalAgentPath, 'AGENTS.md'));
+        const detectedType = hasAgentsMd ? 'KM Agent' : 'General Agent';
 
-        const readStream = Readable.from(zipBuffer);
-        await readStream.pipe(unzipper.Extract({ path: agentsDir })).promise();
+        await AgentMeta.create({
+            id: agentId,
+            name: agentName,
+            ownerId: req.user!.id,
+            type: detectedType
+        });
 
         res.status(201).json({
             message: 'Agent uploaded successfully',
-            agent: { id: agentName, name: agentName, type: 'Unknown' },
+            agent: { id: agentId, name: agentName, type: detectedType },
         });
     } catch (error: any) {
         console.error('Failed to upload agent:', error);
@@ -153,10 +172,21 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 // GET /api/agents/:id - Get a specific agent's details (files structure and content)
 router.get('/:id', async (req, res) => {
     const agentId = req.params.id;
+    const userId = req.user!.id;
+
+    const authMeta = await AgentMeta.findOne({
+        id: agentId,
+        $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+    });
+
+    if (!authMeta) {
+        return res.status(404).json({ error: 'Agent not found or unauthorized' });
+    }
+
     const agentPath = path.join(agentsDir, agentId);
 
     if (!existsSync(agentPath)) {
-        return res.status(404).json({ error: 'Agent not found' });
+        return res.status(404).json({ error: 'Agent not found locally' });
     }
 
     try {
@@ -274,6 +304,13 @@ router.get('/:id', async (req, res) => {
 // PUT /api/agents/:id - Update an agent's specific file
 router.put('/:id', async (req, res) => {
     const agentId = req.params.id;
+    const userId = req.user!.id;
+
+    const authMeta = await AgentMeta.findOne({ id: agentId, ownerId: userId });
+    if (!authMeta) {
+        return res.status(404).json({ error: 'Agent not found or unauthorized to edit' });
+    }
+
     const { filePath, content } = req.body;
 
     if (!filePath || content === undefined) {
@@ -297,7 +334,7 @@ router.put('/:id', async (req, res) => {
     const fullFilePath = path.join(agentPath, filePath);
 
     if (!existsSync(agentPath)) {
-        return res.status(404).json({ error: 'Agent not found' });
+        return res.status(404).json({ error: 'Agent not found locally' });
     }
 
     try {
@@ -317,10 +354,21 @@ router.put('/:id', async (req, res) => {
 // GET /api/agents/:id/export - Export an agent as a zip file
 router.get('/:id/export', async (req, res) => {
     const agentId = req.params.id;
+    const userId = req.user!.id;
+
+    const authMeta = await AgentMeta.findOne({
+        id: agentId,
+        $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
+    });
+
+    if (!authMeta) {
+        return res.status(404).json({ error: 'Agent not found or unauthorized' });
+    }
+
     const agentPath = path.join(agentsDir, agentId);
 
     if (!existsSync(agentPath)) {
-        return res.status(404).json({ error: 'Agent not found' });
+        return res.status(404).json({ error: 'Agent not found locally' });
     }
 
     try {
@@ -365,10 +413,19 @@ router.get('/:id/export', async (req, res) => {
 // DELETE /api/agents/:id - Delete an agent completely
 router.delete('/:id', async (req, res) => {
     const agentId = req.params.id;
+    const userId = req.user!.id;
+
+    const authMeta = await AgentMeta.findOne({ id: agentId, ownerId: userId });
+    if (!authMeta) {
+        return res.status(404).json({ error: 'Agent not found or unauthorized to delete' });
+    }
+
+    await AgentMeta.deleteOne({ id: agentId });
+
     const agentPath = path.join(agentsDir, agentId);
 
     if (!existsSync(agentPath)) {
-        return res.status(404).json({ error: 'Agent not found' });
+        return res.status(404).json({ error: 'Agent not found locally' });
     }
 
     try {
