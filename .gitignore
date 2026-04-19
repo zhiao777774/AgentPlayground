@@ -63,6 +63,7 @@ rag_uploads/
 .data/
 milvus-data/
 backend/agents/
+.omx/
 
 # Specific ignores based on project structure
 backend/dist/
