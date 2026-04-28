@@ -28,6 +28,14 @@ services:
             - LDAP_DEPARTMENT_ATTRIBUTE=
             # JWT Signing Key
             - JWT_SECRET=agent-playground-jwt-auth-secret
+            # External chatbot auth mode: "api_key" for MVP, "gateway_jwt" when Gateway token exchange is ready
+            - EXTERNAL_AUTH_MODE=api_key
+            # Header used to pass raw external API keys in api_key mode
+            - EXTERNAL_API_KEY_HEADER=x-api-key
+            # Required only when EXTERNAL_AUTH_MODE=gateway_jwt
+            # - GATEWAY_PUBLIC_KEY_PEM=
+            # - GATEWAY_ISSUER=
+            # - JWT_AUDIENCE=
             # Database
             - MONGODB_URI=mongodb://mongodb:27017/agent-playground
         # Allow the container to reach host services (e.g. Ollama on localhost:11434)
