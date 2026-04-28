@@ -7,9 +7,11 @@ import { requireAuth } from './middleware/requireAuth.js';
 import modelsRouter from './routes/models.js';
 import sessionsRouter from './routes/sessions.js';
 import chatRouter from './routes/chat.js';
+import externalRouter from './routes/external.js';
 import agentsRouter from './routes/agents.js';
 import documentsRouter from './routes/documents.js';
 import { connectDB } from './db/mongoose.js';
+import { validateExternalAuthConfig } from './middleware/externalAuth.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -43,6 +45,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/models', requireAuth, modelsRouter);
 app.use('/api/sessions', requireAuth, sessionsRouter);
 app.use('/api/chat', requireAuth, chatRouter);
+app.use('/api/external', externalRouter);
 app.use('/api/agents', requireAuth, agentsRouter);
 app.use('/api/documents', requireAuth, documentsRouter);
 
@@ -51,6 +54,10 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(port, async () => {
+    const externalAuthConfig = validateExternalAuthConfig();
     await connectDB();
+    console.log(
+        `[ExternalAuth] mode=${externalAuthConfig.mode}, apiKeyHeader=${externalAuthConfig.apiKeyHeader}`,
+    );
     console.log(`AgentPlayground backend running on port ${port}`);
 });
