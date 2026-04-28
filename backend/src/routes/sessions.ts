@@ -5,10 +5,22 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { modelRegistry } from '../server.js';
 import { SessionMeta } from '../models/ResourceMeta.js';
+import { ExternalChatSession } from '../models/ExternalIntegration.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 const sessionsDir = path.resolve(__dirname, '../../memory/sessions');
+
+function getExternalSessionFields(externalSession: any) {
+    if (!externalSession) return {};
+    return {
+        isExternal: true,
+        readOnly: true,
+        externalAgentId: externalSession.agentId,
+        externalSystemId: externalSession.systemId,
+        externalUserId: externalSession.externalUserId,
+    };
+}
 
 // Create a new session
 router.post('/', async (req, res) => {
@@ -56,8 +68,6 @@ router.post('/', async (req, res) => {
     }
 });
 
-import fs from 'fs';
-
 // Retrieve an existing session
 router.get('/:id', async (req, res) => {
     try {
@@ -71,6 +81,10 @@ router.get('/:id', async (req, res) => {
         if (!authMeta) {
             return res.status(404).json({ error: 'Session not found or unauthorized' });
         }
+
+        const externalSession = await ExternalChatSession.findOne({
+            sessionId: id,
+        });
 
         const sessions = await SessionManager.list(process.cwd(), sessionsDir);
         const session = sessions.find((s) => s.id === id);
@@ -437,7 +451,8 @@ router.get('/:id', async (req, res) => {
             ownerId: authMeta.ownerId,
             ownerName: authMeta.ownerName,
             sharedWith: authMeta.sharedWith,
-            isShared: authMeta.ownerId !== userId
+            isShared: authMeta.ownerId !== userId,
+            ...getExternalSessionFields(externalSession),
         });
     } catch (error) {
         console.error('Error retrieving session:', error);
@@ -455,6 +470,12 @@ router.put('/:id', async (req, res) => {
         const authMeta = await SessionMeta.findOne({ id, ownerId: userId });
         if (!authMeta) {
             return res.status(403).json({ error: 'Only the session owner can rename it' });
+        }
+
+        if (await ExternalChatSession.exists({ sessionId: id })) {
+            return res.status(403).json({
+                error: 'External sessions are read-only in the internal UI',
+            });
         }
 
         if (typeof name !== 'string') {
@@ -498,6 +519,12 @@ router.delete('/:id', async (req, res) => {
             return res.status(403).json({ error: 'Only the session owner can delete it' });
         }
 
+        if (await ExternalChatSession.exists({ sessionId: id })) {
+            return res.status(403).json({
+                error: 'External sessions are read-only in the internal UI',
+            });
+        }
+
         const sessions = await SessionManager.list(process.cwd(), sessionsDir);
         const sessionRecord = sessions.find((s) => s.id === id);
 
@@ -529,23 +556,31 @@ router.delete('/:id', async (req, res) => {
 router.get('/', async (req, res) => {
     try {
         const userId = req.user!.id;
-        const authMetas = await SessionMeta.find({
+        const authMetas: any[] = await SessionMeta.find({
             $or: [{ ownerId: userId }, { 'sharedWith.userId': userId }]
         });
         
         const sessions = await SessionManager.list(process.cwd(), sessionsDir);
+        const externalSessions: any[] = await ExternalChatSession.find({
+            sessionId: { $in: authMetas.map((meta) => meta.id) },
+        });
         
         const metaMap = new Map(authMetas.map(m => [m.id, m]));
+        const externalMap = new Map(
+            externalSessions.map((session) => [session.sessionId, session]),
+        );
         const filteredSessions = sessions
             .filter(s => metaMap.has(s.id))
             .map(s => {
                 const meta = metaMap.get(s.id);
+                const externalSession = externalMap.get(s.id);
                 return {
                     ...s,
                     ownerId: meta?.ownerId || 'unknown',
                     ownerName: meta?.ownerName || 'Unknown',
                     sharedWith: meta?.sharedWith || [],
-                    isShared: meta ? meta.ownerId !== userId : false
+                    isShared: meta ? meta.ownerId !== userId : false,
+                    ...getExternalSessionFields(externalSession),
                 };
             });
 
@@ -568,7 +603,13 @@ router.post('/:id/share', async (req, res) => {
         const session = await SessionMeta.findOne({ id, ownerId: userId });
         if (!session) return res.status(404).json({ error: 'Session not found or not owned by you' });
 
-        if (!session.sharedWith.some(p => p.userId === targetUserId)) {
+        if (await ExternalChatSession.exists({ sessionId: id })) {
+            return res.status(403).json({
+                error: 'External sessions are read-only in the internal UI',
+            });
+        }
+
+        if (!session.sharedWith.some((p: any) => p.userId === targetUserId)) {
             session.sharedWith.push({ userId: targetUserId, name: targetUserName });
             await session.save();
         }
@@ -589,7 +630,13 @@ router.delete('/:id/share/:targetUserId', async (req, res) => {
         const session = await SessionMeta.findOne({ id, ownerId: userId });
         if (!session) return res.status(404).json({ error: 'Session not found or not owned by you' });
 
-        session.sharedWith = session.sharedWith.filter(p => p.userId !== targetUserId);
+        if (await ExternalChatSession.exists({ sessionId: id })) {
+            return res.status(403).json({
+                error: 'External sessions are read-only in the internal UI',
+            });
+        }
+
+        session.sharedWith = session.sharedWith.filter((p: any) => p.userId !== targetUserId);
         await session.save();
 
         res.json({ message: 'Session unshared successfully', sharedWith: session.sharedWith });

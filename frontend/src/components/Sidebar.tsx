@@ -52,10 +52,14 @@ export function Sidebar({ sessions, activeSessionId, activeTab, onChangeTab, onS
         setCurrentSharedWith(session.sharedWith || []);
     };
 
-    const ownedSessions = sessions.filter(s => !s.isShared).sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
-    const sharedSessions = sessions.filter(s => s.isShared).sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+    const ownedSessions = sessions.filter(s => !s.isShared && !s.isExternal).sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+    const sharedSessions = sessions.filter(s => s.isShared && !s.isExternal).sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+    const externalSessions = sessions.filter(s => s.isExternal).sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
 
-    const renderSessionItem = (session: Session) => (
+    const renderSessionItem = (session: Session) => {
+        const isReadOnly = session.readOnly || session.isExternal || session.isShared;
+
+        return (
         <div
             key={session.id}
             onClick={() => onSelectSession(session.id)}
@@ -100,7 +104,7 @@ export function Sidebar({ sessions, activeSessionId, activeTab, onChangeTab, onS
                         <span className="truncate text-sm font-medium flex-1 text-left">
                             {session.name || (session.firstMessage ? session.firstMessage.substring(0, 30) : 'New Conversation')}
                         </span>
-                        {!session.isShared && (
+                        {!isReadOnly && (
                             <div className="absolute right-0 opacity-0 group-hover:opacity-100 flex items-center bg-gray-900 px-1 rounded transition-opacity">
                                 <button
                                     onClick={(e) => openShareModal(e, session)}
@@ -133,7 +137,22 @@ export function Sidebar({ sessions, activeSessionId, activeTab, onChangeTab, onS
                 )}
             </div>
             <div className="flex flex-col space-y-1 pl-7 w-full text-[10px] opacity-70">
-                {session.isShared && (
+                {session.isExternal && (
+                    <div className="flex flex-wrap gap-1">
+                        <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-bold rounded-full max-w-[130px] truncate" title={session.externalAgentId || 'External agent'}>
+                            {session.externalAgentId || 'Agent'}
+                        </span>
+                        <span className="px-1.5 py-0.5 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold rounded-full max-w-[130px] truncate" title={session.externalSystemId || 'External system'}>
+                            {session.externalSystemId || 'System'}
+                        </span>
+                        {session.externalUserId && (
+                            <span className="px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold rounded-full max-w-[130px] truncate" title={session.externalUserId}>
+                                {session.externalUserId}
+                            </span>
+                        )}
+                    </div>
+                )}
+                {session.isShared && !session.isExternal && (
                     <span className="self-start px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold rounded-full max-w-[120px] truncate" title={session.ownerName || 'Shared'}>
                         {session.ownerName || 'Shared'}
                     </span>
@@ -149,7 +168,8 @@ export function Sidebar({ sessions, activeSessionId, activeTab, onChangeTab, onS
                 </div>
             </div>
         </div>
-    );
+        );
+    };
 
     return (
         <div className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col h-screen overflow-hidden shrink-0">
@@ -209,6 +229,16 @@ export function Sidebar({ sessions, activeSessionId, activeTab, onChangeTab, onS
                                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Shared with me</span>
                                 </div>
                                 {sharedSessions.map(renderSessionItem)}
+                            </div>
+                        )}
+
+                        {/* External Conversations Section */}
+                        {externalSessions.length > 0 && (
+                            <div className="space-y-1 pt-2 border-t border-gray-800/50">
+                                <div className="px-3 mb-1 flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">External Conversations</span>
+                                </div>
+                                {externalSessions.map(renderSessionItem)}
                             </div>
                         )}
                     </div>

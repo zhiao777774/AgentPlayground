@@ -30,6 +30,11 @@ export interface Session {
     ownerName?: string;
     sharedWith?: Array<{ userId: string, name: string }>;
     isShared?: boolean;
+    isExternal?: boolean;
+    externalAgentId?: string;
+    externalSystemId?: string;
+    externalUserId?: string;
+    readOnly?: boolean;
 }
 
 export interface SearchUser {

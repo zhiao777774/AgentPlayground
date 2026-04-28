@@ -658,7 +658,7 @@ function App() {
 
   // Final activeAgentId: prefer branch-level, fall back to session-level
   const activeAgentId = branchAgentId !== undefined ? branchAgentId : (activeSession?.activeAgentId ?? null);
-  const isReadOnly = !!activeSession?.isShared;
+  const isReadOnly = !!(activeSession?.isShared || activeSession?.readOnly || activeSession?.isExternal);
 
   if (isAuthLoading) {
     return (
