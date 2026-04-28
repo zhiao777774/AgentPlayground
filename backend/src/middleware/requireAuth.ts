@@ -13,6 +13,7 @@ declare global {
                 username: string;
                 displayName: string;
                 email: string;
+                department?: string;
             }
         }
     }

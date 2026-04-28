@@ -20,7 +20,13 @@ router.post('/login', async (req, res) => {
         }
 
         const ldapUrl = process.env.LDAP_URL;
-        let userProfile = {
+        let userProfile: {
+            id: string;
+            username: string;
+            displayName: string;
+            email: string;
+            department?: string;
+        } = {
             id: '',
             username: '',
             displayName: '',
