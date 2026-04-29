@@ -13,7 +13,7 @@ import {
     ExternalChatSession,
     ExternalSystemBinding,
 } from '../models/ExternalIntegration.js';
-import { AgentMeta } from '../models/ResourceMeta.js';
+import { AgentMeta, SessionMeta } from '../models/ResourceMeta.js';
 import { runAgentSessionStream } from '../services/chatRuntime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -126,6 +126,9 @@ router.delete(
             await ExternalChatSession.deleteOne({
                 sessionId: externalSession.sessionId,
             });
+            const sessionMetaDelete = await SessionMeta.deleteOne({
+                id: externalSession.sessionId,
+            });
 
             let deletedSessionFile = false;
             if (sessionRecord && fs.existsSync(sessionRecord.path)) {
@@ -147,6 +150,7 @@ router.delete(
                 message: 'External session deleted successfully',
                 session_id: externalSession.sessionId,
                 deletedSessionFile,
+                deletedSessionMeta: sessionMetaDelete.deletedCount > 0,
             });
         } catch (error) {
             console.error('External session delete error:', error);
