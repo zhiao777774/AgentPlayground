@@ -9,6 +9,24 @@ const JWT_SECRET = process.env.JWT_SECRET || 'agent-playground-jwt-auth-secret';
 const COOKIE_NAME = 'agent_auth_token';
 const COOKIE_MAX_AGE = 3 * 24 * 60 * 60 * 1000; // 3 days
 
+const escapeLdapFilterValue = (value: string) =>
+    value.replace(/[\0()*\\]/g, (char) => {
+        switch (char) {
+            case '\0':
+                return '\\00';
+            case '(':
+                return '\\28';
+            case ')':
+                return '\\29';
+            case '*':
+                return '\\2a';
+            case '\\':
+                return '\\5c';
+            default:
+                return char;
+        }
+    });
+
 router.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;
@@ -212,9 +230,10 @@ router.get('/me', (req, res) => {
 router.get('/search-users', requireAuth, async (req, res) => {
     try {
         const { q } = req.query;
-        if (!q || typeof q !== 'string' || q.length < 2) {
+        if (!q || typeof q !== 'string' || q.trim().length < 3) {
             return res.json({ users: [] });
         }
+        const query = q.trim();
 
         const ldapUrl = process.env.LDAP_URL;
 
@@ -237,8 +256,8 @@ router.get('/search-users', requireAuth, async (req, res) => {
             const filtered = mockUsers.filter(
                 (u) =>
                     u.id !== req.user!.id &&
-                    (u.username.toLowerCase().includes(q.toLowerCase()) ||
-                        u.displayName.toLowerCase().includes(q.toLowerCase())),
+                    (u.username.toLowerCase().includes(query.toLowerCase()) ||
+                        u.displayName.toLowerCase().includes(query.toLowerCase())),
             );
             return res.json({ users: filtered });
         }
@@ -255,15 +274,16 @@ router.get('/search-users', requireAuth, async (req, res) => {
 
         const client = new Client({
             url: ldapUrl,
-            timeout: 5000,
-            connectTimeout: 5000,
+            timeout: 15000,
+            connectTimeout: 15000,
         });
 
         try {
             await client.bind(serviceAccountDN, serviceAccountPassword);
 
             // Search by sAMAccountName OR displayName containing the query
-            const filter = `(|(sAMAccountName=*${q}*)(cn=*${q}*)(displayName=*${q}*))`;
+            const escapedQuery = escapeLdapFilterValue(query);
+            const filter = `(&(objectCategory=person)(objectClass=user)(|(sAMAccountName=${escapedQuery}*)(displayName=${escapedQuery}*)(cn=${escapedQuery}*)))`;
             const { searchEntries } = await client.search(baseDN, {
                 filter,
                 scope: 'sub',
@@ -274,10 +294,10 @@ router.get('/search-users', requireAuth, async (req, res) => {
                     'name',
                     'department',
                 ],
-                sizeLimit: 10,
+                sizeLimit: 50,
             });
 
-            const users = searchEntries.map((entry) => {
+            const users = searchEntries.map((entry: any) => {
                 const guidBuffer = Buffer.isBuffer(entry.objectGUID)
                     ? entry.objectGUID
                     : Buffer.from(entry.objectGUID as string, 'binary');
@@ -293,7 +313,7 @@ router.get('/search-users', requireAuth, async (req, res) => {
                 };
             });
 
-            const filteredUsers = users.filter((u) => u.id !== req.user!.id);
+            const filteredUsers = users.filter((u: any) => u.id !== req.user!.id);
             await client.unbind();
             return res.json({ users: filteredUsers });
         } catch (error) {

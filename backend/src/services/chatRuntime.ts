@@ -38,6 +38,11 @@ interface RuntimeUserContext {
     department?: string;
 }
 
+interface RuntimeExternalContext {
+    systemId: string;
+    systemName?: string;
+}
+
 type PromptProfile = 'internal' | 'external';
 
 interface RuntimeOptions {
@@ -55,7 +60,7 @@ interface RuntimeOptions {
     allowSwitchAgentTool?: boolean;
     registerActiveSession?: boolean;
     promptProfile?: PromptProfile;
-    externalUserId?: string;
+    externalContext?: RuntimeExternalContext;
 }
 
 function checkCustomContextOverflow(errorMessage: string | undefined): boolean {
@@ -215,10 +220,13 @@ function configureSystemPrompt(
     userContext: RuntimeUserContext,
     activeAgentDir: string,
     promptProfile: PromptProfile,
-    externalUserId?: string,
+    externalContext?: RuntimeExternalContext,
 ) {
     if (promptProfile === 'external' && !targetAgentId) {
         throw new Error('External prompt profile requires a bound agent');
+    }
+    if (promptProfile === 'external' && !externalContext) {
+        throw new Error('External prompt profile requires external context');
     }
 
     const operablePath = targetAgentId
@@ -286,12 +294,13 @@ Core Directives:
 
     const userContextText = `\nUser Context:
 - Current User: ${userContext.username.toLowerCase().replace(/_/g, '-')}
+- Display Name: ${userContext.displayName || userContext.username || 'N/A'}
 - Email: ${userContext.email || 'N/A'}
 - Department: ${userContext.department || 'N/A'}`;
 
     const externalContextText =
         promptProfile === 'external'
-            ? `\nExternal Runtime Context:\n- Channel: external_system\n- Bound Agent ID: ${targetAgentId}\n- External User ID: ${externalUserId || 'N/A'}\n- The caller is an external chatbot integration, not the internal web UI.\n- Agent switching, slash commands, and UI-only workflows are unavailable in this channel.`
+            ? `\nExternal Runtime Context:\n- Channel: external_system\n- External System ID: ${externalContext!.systemId}\n- External System Name: ${externalContext!.systemName || 'N/A'}\n- Bound Agent ID: ${targetAgentId}\n- This request comes from an external chatbot integration, not the internal AgentPlayground web UI.\n- The external system is responsible for authenticating and identifying its end user.\n- Agent switching, slash commands, and UI-only workflows are unavailable in this channel.`
             : '';
 
     tailoredBasePrompt = tailoredBasePrompt.replace(
@@ -403,7 +412,7 @@ export async function runAgentSessionStream(options: RuntimeOptions) {
         allowSwitchAgentTool = false,
         registerActiveSession = true,
         promptProfile = 'internal',
-        externalUserId,
+        externalContext,
     } = options;
 
     const baseAgentDir = path.resolve(__dirname, '../../');
@@ -503,7 +512,7 @@ export async function runAgentSessionStream(options: RuntimeOptions) {
         userContext,
         activeAgentDir,
         promptProfile,
-        externalUserId,
+        externalContext,
     );
 
     if (registerActiveSession) {

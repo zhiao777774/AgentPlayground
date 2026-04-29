@@ -29,6 +29,29 @@ function getObjectMetadata(
     return metadata as Record<string, unknown>;
 }
 
+function getStringMetadataValue(
+    metadata: Record<string, unknown> | undefined,
+    key: string,
+    fallback: string,
+): string {
+    const value = metadata?.[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function getExternalUserProfile(metadata: unknown, externalUserId: string) {
+    const objectMetadata = getObjectMetadata(metadata);
+    const userMetadata = getObjectMetadata(objectMetadata?.user);
+    return {
+        displayName: getStringMetadataValue(
+            userMetadata,
+            'displayName',
+            externalUserId,
+        ),
+        email: getStringMetadataValue(userMetadata, 'email', 'N/A'),
+        department: getStringMetadataValue(userMetadata, 'department', 'N/A'),
+    };
+}
+
 function getLatestAgentRouting(sessionManager: any): string | null {
     const entries = sessionManager.getEntries();
     for (let i = entries.length - 1; i >= 0; i--) {
@@ -152,6 +175,11 @@ router.post(
                 error: 'external_user_id and message are required',
             });
         }
+        const externalUserId = external_user_id.trim();
+        const externalUserProfile = getExternalUserProfile(
+            metadata,
+            externalUserId,
+        );
 
         let streamStarted = false;
 
@@ -196,7 +224,7 @@ router.post(
                 const externalSession = await ExternalChatSession.findOne({
                     sessionId: session_id,
                     systemId: principal.systemId,
-                    externalUserId: external_user_id,
+                    externalUserId,
                 });
 
                 if (!externalSession) {
@@ -233,7 +261,7 @@ router.post(
                     appendExternalContext(
                         sessionManager,
                         principal,
-                        external_user_id,
+                        externalUserId,
                         targetAgentId,
                         metadata,
                         'binding_agent_changed',
@@ -271,7 +299,7 @@ router.post(
                 appendExternalContext(
                     sessionManager,
                     principal,
-                    external_user_id,
+                    externalUserId,
                     targetAgentId,
                     metadata,
                     'new_session',
@@ -294,7 +322,7 @@ router.post(
                 await ExternalChatSession.create({
                     sessionId: fullId,
                     systemId: principal.systemId,
-                    externalUserId: external_user_id,
+                    externalUserId,
                     agentId: targetAgentId,
                     metadata: getObjectMetadata(metadata),
                     lastActivityAt: new Date(),
@@ -315,11 +343,11 @@ router.post(
                 message: message.trim(),
                 sessionIdHint: session_id,
                 userContext: {
-                    id: principal.systemId,
-                    username: principal.systemId,
-                    displayName: principal.systemName,
-                    email: 'N/A',
-                    department: 'External System',
+                    id: externalUserId,
+                    username: externalUserId,
+                    displayName: externalUserProfile.displayName,
+                    email: externalUserProfile.email,
+                    department: externalUserProfile.department,
                 },
                 toolUserId: runtimeAgent.ownerId,
                 toolUsername: runtimeAgent.ownerName || principal.systemId,
@@ -327,7 +355,10 @@ router.post(
                 allowSwitchAgentTool: false,
                 registerActiveSession: false,
                 promptProfile: 'external',
-                externalUserId: external_user_id,
+                externalContext: {
+                    systemId: principal.systemId,
+                    systemName: principal.systemName,
+                },
             });
         } catch (error: any) {
             console.error('External chat endpoint error:', error);

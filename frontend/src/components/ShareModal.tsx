@@ -23,7 +23,7 @@ export function ShareModal({ title, sharedWith, onShare, onUnshare, onClose }: S
     }, [sharedWith]);
 
     const handleSearch = async () => {
-        if (searchQuery.length < 2) return;
+        if (searchQuery.length < 3) return;
         setIsSearching(true);
         setSearchError('');
         try {
@@ -45,7 +45,7 @@ export function ShareModal({ title, sharedWith, onShare, onUnshare, onClose }: S
                         <X className="w-5 h-5" />
                     </button>
                 </div>
-                
+
                 <div className="p-6 overflow-y-auto space-y-6">
                     {/* Current Shared List */}
                     <div>
@@ -60,7 +60,7 @@ export function ShareModal({ title, sharedWith, onShare, onUnshare, onClose }: S
                                             </div>
                                             <span className="text-sm text-gray-700 dark:text-gray-300">{sharedUser.name}</span>
                                         </div>
-                                        <button 
+                                        <button
                                             onClick={async () => {
                                                 await onUnshare(sharedUser.userId);
                                             }}
@@ -78,10 +78,15 @@ export function ShareModal({ title, sharedWith, onShare, onUnshare, onClose }: S
 
                     {/* Search and Add */}
                     <div className="space-y-3">
-                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Find People</h4>
+                        <div>
+                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Find People</h4>
+                            <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                                Enter at least 3 characters. Showing up to 50 matches.
+                            </p>
+                        </div>
                         <div className="relative">
-                            <input 
-                                type="text" 
+                            <input
+                                type="text"
                                 placeholder="Search by name or username..."
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
@@ -89,9 +94,9 @@ export function ShareModal({ title, sharedWith, onShare, onUnshare, onClose }: S
                                 className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg py-2 pl-9 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
                             />
                             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
-                            <button 
+                            <button
                                 onClick={handleSearch}
-                                disabled={isSearching || searchQuery.length < 2}
+                                disabled={isSearching || searchQuery.length < 3}
                                 className="absolute right-2 top-1.5 px-2 py-1 bg-blue-600 text-white text-[10px] font-bold rounded hover:bg-blue-700 disabled:opacity-50"
                             >
                                 {isSearching ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Search'}
@@ -112,7 +117,7 @@ export function ShareModal({ title, sharedWith, onShare, onUnshare, onClose }: S
                                             <span className="text-xs text-gray-500 truncate">{foundUser.department} • {foundUser.username}</span>
                                         </div>
                                     </div>
-                                    <button 
+                                    <button
                                         disabled={localSharedWith.some(u => u.userId === foundUser.id)}
                                         onClick={async () => {
                                             await onShare(foundUser.id, foundUser.displayName);
