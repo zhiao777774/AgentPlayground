@@ -308,7 +308,12 @@ Core Directives:
         `$1\nCurrent operable scope: /app/${operablePath}${securitySandboxText}\n${userContextText}${externalContextText}`,
     );
 
-    session.agent.setSystemPrompt(tailoredBasePrompt + bootstrapContext);
+    const finalSystemPrompt = tailoredBasePrompt + bootstrapContext;
+
+    // Pi AgentSession resets the agent prompt from its private base prompt
+    // before each turn when extension hooks are active. Keep both in sync.
+    session._baseSystemPrompt = finalSystemPrompt;
+    session.agent.setSystemPrompt(finalSystemPrompt);
 }
 
 function ensureSessionTmpDir(activeId: string) {
