@@ -24,6 +24,7 @@ EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "http://host.docker.internal:
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "qwen3-embedding:0.6b")
 MILVUS_HOST = os.getenv("MILVUS_HOST", "milvus-standalone")
 MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
+MILVUS_DB = os.getenv("MILVUS_DB", "default")
 COLLECTION_NAME = "knowledge_base"
 
 # External LLM configuration for Contextual Chunking synthesis
@@ -43,13 +44,22 @@ class DeleteRequest(BaseModel):
 # Connect to Milvus on startup
 @app.on_event("startup")
 def startup_event():
-    print(f"Connecting to Milvus at {MILVUS_HOST}:{MILVUS_PORT}")
+    print(f"Connecting to Milvus at {MILVUS_HOST}:{MILVUS_PORT}, db={MILVUS_DB}")
     try:
-        connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
+        connect_milvus()
         setup_collection()
     except Exception as e:
         print(f"Failed to connect to Milvus on startup: {e}")
         # In a real app we might retry, but for now we'll attempt connection on first use if it fails here
+
+def connect_milvus():
+    if not connections.has_connection("default"):
+        connections.connect(
+            "default",
+            host=MILVUS_HOST,
+            port=MILVUS_PORT,
+            db_name=MILVUS_DB,
+        )
 
 def setup_collection():
     if utility.has_collection(COLLECTION_NAME):
@@ -257,8 +267,7 @@ def process_document_task(document_id: str, file_path: str):
         
         # 3. Connect to collection
         # Ensure connection is alive
-        if not connections.has_connection("default"):
-            connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
+        connect_milvus()
         
         collection = Collection(COLLECTION_NAME)
         
@@ -345,8 +354,7 @@ async def process_document(document_id: str, file: UploadFile = File(...)):
 async def search_documents(request: SearchRequest):
     """Searches Milvus for relevant chunks based on a query."""
     try:
-        if not connections.has_connection("default"):
-            connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
+        connect_milvus()
             
         query_embedding = get_embedding(request.query)
         if not query_embedding:
@@ -389,8 +397,7 @@ async def search_documents(request: SearchRequest):
 async def delete_document(request: DeleteRequest):
     """Deletes vectors for a specific document_id."""
     try:
-        if not connections.has_connection("default"):
-            connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
+        connect_milvus()
         
         if not utility.has_collection(COLLECTION_NAME):
             return {"message": f"No collection exists yet, nothing to delete for {request.document_id}"}
@@ -409,8 +416,7 @@ async def delete_document(request: DeleteRequest):
 async def get_document_chunks(document_id: str, limit: int = 100, offset: int = 0):
     """Retrieves all stored text chunks for a specific document_id from Milvus."""
     try:
-        if not connections.has_connection("default"):
-            connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
+        connect_milvus()
         
         if not utility.has_collection(COLLECTION_NAME):
             return {"chunks": [], "total": 0}

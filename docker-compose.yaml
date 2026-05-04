@@ -61,6 +61,7 @@ services:
         environment:
             - MILVUS_HOST=milvus-standalone
             - MILVUS_PORT=19530
+            - MILVUS_DB=default
             # Ollama is running on the host machine, so use host.docker.internal
             - EMBEDDING_API_URL=http://host.docker.internal:11434/api/embeddings
             - EMBEDDING_MODEL=qwen3-embedding:0.6b
