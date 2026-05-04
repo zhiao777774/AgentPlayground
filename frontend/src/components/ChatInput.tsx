@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { Send, Square, Zap, X, MessageSquareQuote } from 'lucide-react';
 
@@ -12,11 +12,20 @@ interface Props {
     onClearQuote?: () => void;
     pendingActions?: { id: string, type: 'steer' | 'followUp', text: string }[];
     readOnly?: boolean;
+    draftMessage?: { id: number; text: string } | null;
+    onDraftConsumed?: () => void;
 }
 
-export function ChatInput({ onSend, onStop, onSteer, disabled, isGenerating = false, quotedMessage, onClearQuote, pendingActions = [], readOnly = false }: Props) {
+export function ChatInput({ onSend, onStop, onSteer, disabled, isGenerating = false, quotedMessage, onClearQuote, pendingActions = [], readOnly = false, draftMessage, onDraftConsumed }: Props) {
     const [content, setContent] = useState('');
     const [steerContent, setSteerContent] = useState('');
+
+    useEffect(() => {
+        if (draftMessage) {
+            setContent(draftMessage.text);
+            onDraftConsumed?.();
+        }
+    }, [draftMessage, onDraftConsumed]);
 
     const handleSubmit = (e?: FormEvent) => {
         e?.preventDefault();

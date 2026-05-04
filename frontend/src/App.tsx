@@ -28,6 +28,7 @@ function App() {
   const [generationStatus, setGenerationStatus] = useState<'generating' | 'compacting' | 'retrying' | false>(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingActions, setPendingActions] = useState<{ id: string, type: 'steer' | 'followUp', text: string }[]>([]);
+  const [chatDraft, setChatDraft] = useState<{ id: number; text: string } | null>(null);
 
   // Agent Management State
   const [activeTab, setActiveTab] = useState<'chat' | 'agent' | 'knowledge'>('chat');
@@ -156,8 +157,13 @@ function App() {
   };
 
   const handleNewAgent = () => {
-    // Placeholder for Agent generation workflow
-    alert("This will invoke the km-agent-creator skill to scaffold a new agent.");
+    handleNewSession();
+    setActiveAgentDetail(null);
+    setActiveTab('chat');
+    setChatDraft({
+      id: Date.now(),
+      text: '我想創建一個新的 KM Agent',
+    });
   };
 
   const handleShareAgent = async (id: string, targetUserId: string, targetUserName: string) => {
@@ -820,6 +826,8 @@ function App() {
               onClearQuote={() => setQuotedMessage(null)}
               pendingActions={pendingActions}
               readOnly={isReadOnly}
+              draftMessage={chatDraft}
+              onDraftConsumed={() => setChatDraft(null)}
             />
           </div>
         </div>
