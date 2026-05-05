@@ -25,6 +25,11 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "qwen3-embedding:0.6b")
 MILVUS_HOST = os.getenv("MILVUS_HOST", "milvus-standalone")
 MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
 MILVUS_DB = os.getenv("MILVUS_DB", "default")
+MILVUS_SECURE = os.getenv("MILVUS_SECURE", "false").lower() == "true"
+MILVUS_CLIENT_PEM_PATH = os.getenv("MILVUS_CLIENT_PEM_PATH")
+MILVUS_CLIENT_KEY_PATH = os.getenv("MILVUS_CLIENT_KEY_PATH")
+MILVUS_CA_PEM_PATH = os.getenv("MILVUS_CA_PEM_PATH")
+MILVUS_SERVER_NAME = os.getenv("MILVUS_SERVER_NAME", "localhost")
 COLLECTION_NAME = "knowledge_base"
 
 # External LLM configuration for Contextual Chunking synthesis
@@ -44,7 +49,7 @@ class DeleteRequest(BaseModel):
 # Connect to Milvus on startup
 @app.on_event("startup")
 def startup_event():
-    print(f"Connecting to Milvus at {MILVUS_HOST}:{MILVUS_PORT}, db={MILVUS_DB}")
+    print(f"Connecting to Milvus at {MILVUS_HOST}:{MILVUS_PORT}, db={MILVUS_DB}, secure={MILVUS_SECURE}")
     try:
         connect_milvus()
         setup_collection()
@@ -54,12 +59,36 @@ def startup_event():
 
 def connect_milvus():
     if not connections.has_connection("default"):
-        connections.connect(
-            "default",
-            host=MILVUS_HOST,
-            port=MILVUS_PORT,
-            db_name=MILVUS_DB,
-        )
+        connect_args = {
+            "host": MILVUS_HOST,
+            "port": MILVUS_PORT,
+            "db_name": MILVUS_DB,
+        }
+
+        if MILVUS_SECURE:
+            missing = [
+                name
+                for name, value in {
+                    "MILVUS_CLIENT_PEM_PATH": MILVUS_CLIENT_PEM_PATH,
+                    "MILVUS_CLIENT_KEY_PATH": MILVUS_CLIENT_KEY_PATH,
+                    "MILVUS_CA_PEM_PATH": MILVUS_CA_PEM_PATH,
+                }.items()
+                if not value
+            ]
+            if missing:
+                raise RuntimeError(
+                    f"Milvus TLS is enabled but missing env vars: {', '.join(missing)}"
+                )
+
+            connect_args.update({
+                "secure": True,
+                "client_pem_path": MILVUS_CLIENT_PEM_PATH,
+                "client_key_path": MILVUS_CLIENT_KEY_PATH,
+                "ca_pem_path": MILVUS_CA_PEM_PATH,
+                "server_name": MILVUS_SERVER_NAME,
+            })
+
+        connections.connect("default", **connect_args)
 
 def setup_collection():
     if utility.has_collection(COLLECTION_NAME):
