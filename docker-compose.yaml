@@ -74,6 +74,11 @@ services:
             - SUMMARY_LLM_API_BASE=http://host.docker.internal:11434/v1
             - SUMMARY_LLM_API_KEY=ollama
             - SUMMARY_LLM_MODEL=qwen3:8b
+            # Optional OpenAI-compatible VLM OCR. Leave unset to use PyMuPDF text extraction.
+            # - OCR_API_BASE=
+            # - OCR_API_KEY=
+            # - OCR_MODEL=
+            # - OCR_PROMPT=
             - CHUNK_METHOD=contextual
             - CHUNK_SIZE=800
             - CHUNK_OVERLAP=150

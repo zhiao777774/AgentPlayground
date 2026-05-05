@@ -3,9 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import fitz  # PyMuPDF
 import requests
-import asyncio
 import os
-import uuid
+import base64
 from typing import List, Optional
 from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility
 
@@ -36,6 +35,12 @@ COLLECTION_NAME = "knowledge_base"
 SUMMARY_LLM_API_BASE = os.getenv("SUMMARY_LLM_API_BASE", "http://host.docker.internal:11434/v1")
 SUMMARY_LLM_API_KEY = os.getenv("SUMMARY_LLM_API_KEY", "ollama")
 SUMMARY_LLM_MODEL = os.getenv("SUMMARY_LLM_MODEL", "qwen3:8b")
+
+# Optional OpenAI-compatible VLM OCR configuration. Leave unset to use PyMuPDF text extraction.
+OCR_API_BASE = os.getenv("OCR_API_BASE")
+OCR_API_KEY = os.getenv("OCR_API_KEY")
+OCR_MODEL = os.getenv("OCR_MODEL")
+OCR_PROMPT = os.getenv("OCR_PROMPT", "<image>\nFree OCR.")
 
 # Document Models
 class SearchRequest(BaseModel):
@@ -229,6 +234,69 @@ def extract_text_pymupdf(file_path: str) -> str:
         print(f"Error extracting text: {e}")
     return text
 
+def is_vlm_ocr_configured() -> bool:
+    return bool(OCR_API_BASE and OCR_API_KEY and OCR_MODEL)
+
+def render_page_to_data_url(page) -> str:
+    # 2x scale is a pragmatic quality/latency balance for OCR.
+    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+    encoded = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
+
+def ocr_image_data_url(image_data_url: str, page_number: int) -> str:
+    url = f"{OCR_API_BASE.rstrip('/')}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {OCR_API_KEY}",
+    }
+    payload = {
+        "model": OCR_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": OCR_PROMPT},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            }
+        ],
+    }
+
+    response = requests.post(url, headers=headers, json=payload, timeout=180)
+    response.raise_for_status()
+    data = response.json()
+    content = data.get("choices", [])[0].get("message", {}).get("content", "")
+    if not content.strip():
+        print(f"OCR returned empty content for page {page_number}")
+    return content.strip()
+
+def extract_text_vlm_ocr(file_path: str) -> str:
+    """Extract text from each PDF page using an OpenAI-compatible VLM OCR endpoint."""
+    page_texts = []
+    doc = fitz.open(file_path)
+    try:
+        for page_index, page in enumerate(doc):
+            page_number = page_index + 1
+            print(f"OCR processing page {page_number}/{doc.page_count}")
+            page_text = ocr_image_data_url(render_page_to_data_url(page), page_number)
+            if page_text:
+                page_texts.append(f"<!-- Page {page_number} -->\n{page_text}")
+    finally:
+        doc.close()
+    return "\n\n".join(page_texts)
+
+def extract_text_pdf(file_path: str) -> str:
+    if is_vlm_ocr_configured():
+        try:
+            text = extract_text_vlm_ocr(file_path)
+            if text.strip():
+                return text
+            print("VLM OCR returned no text, falling back to PyMuPDF.")
+        except Exception as e:
+            print(f"VLM OCR failed, falling back to PyMuPDF: {e}")
+
+    return extract_text_pymupdf(file_path)
+
 def extract_text_txt(file_path: str) -> str:
     """Extract text from a plain text file."""
     try:
@@ -242,7 +310,7 @@ def extract_text(file_path: str) -> str:
     """Extract text from a file based on its extension."""
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".pdf":
-        return extract_text_pymupdf(file_path)
+        return extract_text_pdf(file_path)
     elif ext == ".txt":
         return extract_text_txt(file_path)
     else:
